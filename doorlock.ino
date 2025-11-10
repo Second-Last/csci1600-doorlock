@@ -1,6 +1,6 @@
-#include <Servo.h> 
+#include <Servo.h>
 
-Servo myservo;  
+Servo myservo;
 
 // Control and feedback pins
 const int servoPin = 9;
@@ -14,6 +14,45 @@ int maxDegrees;
 int minFeedback;
 int maxFeedback;
 int tolerance = 5; // max feedback measurement error
+
+// FSM State Enum
+enum State {
+  CALIBRATE_LOCK,
+  CALIBRATE_UNLOCK,
+  UNLOCK,
+  LOCK,
+  BUSY_WAIT,
+  BUSY_MOVE,
+  BAD
+};
+
+// Command Enum
+enum Command {
+  NONE,
+  LOCK_CMD,
+  UNLOCK_CMD
+};
+
+// FSM State struct
+struct FSMState {
+  State currentState;
+  int lockDeg;
+  int unlockDeg;
+  unsigned long startTime;
+};
+
+// Global FSM state
+FSMState fsmState;
+
+// Timeout constant (milliseconds)
+const unsigned long TOL = 5000; // 5 second timeout for moves
+
+// Hardcoded lock positions
+const int LOCK_ANGLE = 120;
+const int UNLOCK_ANGLE = 50;
+
+// Angle tolerance for position checking (degrees)
+const int ANGLE_TOLERANCE = 3;
 
 /*
   This function establishes the feedback values for 2 positions of the servo.
@@ -35,18 +74,43 @@ void calibrate(Servo servo, int analogPin, int minPos, int maxPos)
 }
 
 
-void setup() 
-{ 
+void setup()
+{
   Serial.begin(9600);
   while (!Serial);
 
-  myservo.attach(servoPin); 
+  // Setup button pins
+  pinMode(lockPin, INPUT);
+  pinMode(unlockPin, INPUT);
+
+  myservo.attach(servoPin);
 
   calibrate(myservo, feedbackPin, 50, 140);  // calibrate for the 20-160 degree range
   Serial.print("minFeedback: ");
   Serial.println(minFeedback);
   Serial.print("maxFeedback: ");
   Serial.println(maxFeedback);
+  delay(1000);
+
+  // Initialize FSM state
+  fsmState.currentState = CALIBRATE_LOCK;
+  fsmState.lockDeg = LOCK_ANGLE;
+  fsmState.unlockDeg = UNLOCK_ANGLE;
+  fsmState.startTime = 0;
+
+  Serial.println("FSM initialized in CALIBRATE_LOCK state");
+  Serial.println("Hardcoded angles - Lock: 120, Unlock: 50");
+
+  // Run through calibration states. Manually rotate the motor to simulate user
+  // calibration.
+  // TODO: remove once we implement power cutoff for the servo to release
+  // control of the motor
+  fsmTransition(LOCK_ANGLE, millis(), NONE, NONE);
+  fsmTransition(UNLOCK_ANGLE, millis(), NONE, NONE);
+  myservo.write(50);
+  delay(1000);
+
+  Serial.println("FSM ready - now in UNLOCK state");
 } 
 
 void Seek(Servo servo, int analogPin, int pos)
@@ -67,6 +131,116 @@ void Seek(Servo servo, int analogPin, int pos)
   } // wait...
 }
 
+// Get current servo position from feedback
+int getCurrentDeg()
+{
+  int feedback = analogRead(feedbackPin);
+  return map(feedback, minFeedback, maxFeedback, minDegrees, maxDegrees);
+}
+
+// Check if at unlock position (open-ended tolerance: only check upper bound)
+bool isAtUnlock(int deg)
+{
+  return deg <= (fsmState.unlockDeg + ANGLE_TOLERANCE);
+}
+
+// Check if at lock position (open-ended tolerance: only check lower bound)
+bool isAtLock(int deg)
+{
+  return deg >= (fsmState.lockDeg - ANGLE_TOLERANCE);
+}
+
+// FSM Transition Function
+void fsmTransition(int deg, unsigned long millis, Command button, Command cmd)
+{
+  State nextState = fsmState.currentState;
+
+  switch (fsmState.currentState) {
+    case CALIBRATE_LOCK:
+      // Automatically advance to next calibration state
+      fsmState.lockDeg = deg;
+      nextState = CALIBRATE_UNLOCK;
+      Serial.println("FSM: CALIBRATE_LOCK -> CALIBRATE_UNLOCK");
+      break;
+
+    case CALIBRATE_UNLOCK:
+      // Automatically advance to UNLOCK state
+      fsmState.unlockDeg = deg;
+      nextState = UNLOCK;
+      Serial.println("FSM: CALIBRATE_UNLOCK -> UNLOCK");
+      break;
+
+    case UNLOCK:
+      if (isAtUnlock(deg) && cmd == LOCK_CMD) {
+        nextState = BUSY_MOVE;
+        fsmState.startTime = millis;
+        myservo.write(fsmState.lockDeg);
+        Serial.println("FSM: UNLOCK -> BUSY_MOVE (locking)");
+      }
+      else if (isAtLock(deg)) {
+        nextState = LOCK;
+        Serial.println("FSM: UNLOCK -> LOCK");
+      }
+      else if (!isAtLock(deg) && !isAtUnlock(deg)) {
+        nextState = BUSY_WAIT;
+        Serial.println("FSM: UNLOCK -> BUSY_WAIT (manual turn detected)");
+      }
+      break;
+
+    case LOCK:
+      if (isAtLock(deg) && cmd == UNLOCK_CMD) {
+        nextState = BUSY_MOVE;
+        fsmState.startTime = millis;
+        myservo.write(fsmState.unlockDeg);
+        Serial.println("FSM: LOCK -> BUSY_MOVE (unlocking)");
+      }
+      else if (isAtUnlock(deg)) {
+        nextState = UNLOCK;
+        Serial.println("FSM: LOCK -> UNLOCK");
+      }
+      else if (!isAtLock(deg) && !isAtUnlock(deg)) {
+        nextState = BUSY_WAIT;
+        Serial.println("FSM: LOCK -> BUSY_WAIT (manual turn detected)");
+      }
+      break;
+
+    case BUSY_WAIT:
+      // No timeout - user can manually turn for as long as they want
+      if (isAtUnlock(deg)) {
+        nextState = UNLOCK;
+        Serial.println("FSM: BUSY_WAIT -> UNLOCK");
+      }
+      else if (isAtLock(deg)) {
+        nextState = LOCK;
+        Serial.println("FSM: BUSY_WAIT -> LOCK");
+      }
+      // Otherwise stay in BUSY_WAIT
+      break;
+
+    case BUSY_MOVE:
+      if (millis - fsmState.startTime > TOL) {
+        nextState = BAD;
+        Serial.println("FSM: BUSY_MOVE -> BAD (timeout)");
+      }
+      else if (isAtUnlock(deg)) {
+        nextState = UNLOCK;
+        Serial.println("FSM: BUSY_MOVE -> UNLOCK");
+      }
+      else if (isAtLock(deg)) {
+        nextState = LOCK;
+        Serial.println("FSM: BUSY_MOVE -> LOCK");
+      }
+      break;
+
+    case BAD:
+      // Stay in BAD state - requires manual reset
+      Serial.println("FSM: In BAD state - reset required");
+      break;
+  }
+
+  fsmState.currentState = nextState;
+}
+
 void testAngle()
 {
   int deg;
@@ -81,5 +255,27 @@ void testAngle()
 
 void loop()
 {
-  testAngle();
+  // Read button states
+  int lockButton = digitalRead(lockPin);
+  int unlockButton = digitalRead(unlockPin);
+
+  // Determine command based on button press
+  Command cmd = NONE;
+  if (lockButton == HIGH) {
+    cmd = LOCK_CMD;
+    Serial.println("Lock button pressed");
+  }
+  else if (unlockButton == HIGH) {
+    cmd = UNLOCK_CMD;
+    Serial.println("Unlock button pressed");
+  }
+
+  // Get current servo position
+  int currentDeg = getCurrentDeg();
+
+  // Run FSM transition
+  fsmTransition(currentDeg, millis(), NONE, cmd);
+
+  // Small delay to debounce buttons
+  delay(100);
 }
