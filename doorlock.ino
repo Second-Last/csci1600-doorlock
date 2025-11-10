@@ -13,25 +13,13 @@ int minDegrees;
 int maxDegrees;
 int minFeedback;
 int maxFeedback;
-int tolerance = 5; // max feedback measurement error
+int tolerance = 5;  // max feedback measurement error
 
 // FSM State Enum
-enum State {
-  CALIBRATE_LOCK,
-  CALIBRATE_UNLOCK,
-  UNLOCK,
-  LOCK,
-  BUSY_WAIT,
-  BUSY_MOVE,
-  BAD
-};
+enum State { CALIBRATE_LOCK, CALIBRATE_UNLOCK, UNLOCK, LOCK, BUSY_WAIT, BUSY_MOVE, BAD };
 
 // Command Enum
-enum Command {
-  NONE,
-  LOCK_CMD,
-  UNLOCK_CMD
-};
+enum Command { NONE, LOCK_CMD, UNLOCK_CMD };
 
 // FSM State struct
 struct FSMState {
@@ -45,7 +33,7 @@ struct FSMState {
 FSMState fsmState;
 
 // Timeout constant (milliseconds)
-const unsigned long TOL = 5000; // 5 second timeout for moves
+const unsigned long TOL = 5000;  // 5 second timeout for moves
 
 // Hardcoded lock positions
 const int LOCK_ANGLE = 120;
@@ -58,24 +46,21 @@ const int ANGLE_TOLERANCE = 3;
   This function establishes the feedback values for 2 positions of the servo.
   With this information, we can interpolate feedback values for intermediate positions
 */
-void calibrate(Servo servo, int analogPin, int minPos, int maxPos)
-{
+void calibrate(Servo servo, int analogPin, int minPos, int maxPos) {
   // Move to the minimum position and record the feedback value
   servo.write(minPos);
   minDegrees = minPos;
-  delay(2000); // make sure it has time to get there and settle
+  delay(2000);  // make sure it has time to get there and settle
   minFeedback = analogRead(analogPin);
 
   // Move to the maximum position and record the feedback value
   servo.write(maxPos);
   maxDegrees = maxPos;
-  delay(2000); // make sure it has time to get there and settle
+  delay(2000);  // make sure it has time to get there and settle
   maxFeedback = analogRead(analogPin);
 }
 
-
-void setup()
-{
+void setup() {
   Serial.begin(9600);
   while (!Serial);
 
@@ -111,48 +96,38 @@ void setup()
   delay(1000);
 
   Serial.println("FSM ready - now in UNLOCK state");
-} 
+}
 
-void Seek(Servo servo, int analogPin, int pos)
-{
+void Seek(Servo servo, int analogPin, int pos) {
   // Start the move...
   servo.write(pos);
 
   // Calculate the target feedback value for the final position
-  int target = map(pos, minDegrees, maxDegrees, minFeedback, maxFeedback); 
+  int target = map(pos, minDegrees, maxDegrees, minFeedback, maxFeedback);
   Serial.print("Target: ");
   Serial.println(target);
 
   // Wait until it reaches the target
-  while(abs(analogRead(analogPin) - target) > tolerance)
-  {
+  while (abs(analogRead(analogPin) - target) > tolerance) {
     Serial.print("Current reading: ");
     Serial.println(analogRead(analogPin));
-  } // wait...
+  }  // wait...
 }
 
 // Get current servo position from feedback
-int getCurrentDeg()
-{
+int getCurrentDeg() {
   int feedback = analogRead(feedbackPin);
   return map(feedback, minFeedback, maxFeedback, minDegrees, maxDegrees);
 }
 
 // Check if at unlock position (open-ended tolerance: only check upper bound)
-bool isAtUnlock(int deg)
-{
-  return deg <= (fsmState.unlockDeg + ANGLE_TOLERANCE);
-}
+bool isAtUnlock(int deg) { return deg <= (fsmState.unlockDeg + ANGLE_TOLERANCE); }
 
 // Check if at lock position (open-ended tolerance: only check lower bound)
-bool isAtLock(int deg)
-{
-  return deg >= (fsmState.lockDeg - ANGLE_TOLERANCE);
-}
+bool isAtLock(int deg) { return deg >= (fsmState.lockDeg - ANGLE_TOLERANCE); }
 
 // FSM Transition Function
-void fsmTransition(int deg, unsigned long millis, Command button, Command cmd)
-{
+void fsmTransition(int deg, unsigned long millis, Command button, Command cmd) {
   State nextState = fsmState.currentState;
 
   switch (fsmState.currentState) {
@@ -176,12 +151,10 @@ void fsmTransition(int deg, unsigned long millis, Command button, Command cmd)
         fsmState.startTime = millis;
         myservo.write(fsmState.lockDeg);
         Serial.println("FSM: UNLOCK -> BUSY_MOVE (locking)");
-      }
-      else if (isAtLock(deg)) {
+      } else if (isAtLock(deg)) {
         nextState = LOCK;
         Serial.println("FSM: UNLOCK -> LOCK");
-      }
-      else if (!isAtLock(deg) && !isAtUnlock(deg)) {
+      } else if (!isAtLock(deg) && !isAtUnlock(deg)) {
         nextState = BUSY_WAIT;
         Serial.println("FSM: UNLOCK -> BUSY_WAIT (manual turn detected)");
       }
@@ -193,12 +166,10 @@ void fsmTransition(int deg, unsigned long millis, Command button, Command cmd)
         fsmState.startTime = millis;
         myservo.write(fsmState.unlockDeg);
         Serial.println("FSM: LOCK -> BUSY_MOVE (unlocking)");
-      }
-      else if (isAtUnlock(deg)) {
+      } else if (isAtUnlock(deg)) {
         nextState = UNLOCK;
         Serial.println("FSM: LOCK -> UNLOCK");
-      }
-      else if (!isAtLock(deg) && !isAtUnlock(deg)) {
+      } else if (!isAtLock(deg) && !isAtUnlock(deg)) {
         nextState = BUSY_WAIT;
         Serial.println("FSM: LOCK -> BUSY_WAIT (manual turn detected)");
       }
@@ -209,8 +180,7 @@ void fsmTransition(int deg, unsigned long millis, Command button, Command cmd)
       if (isAtUnlock(deg)) {
         nextState = UNLOCK;
         Serial.println("FSM: BUSY_WAIT -> UNLOCK");
-      }
-      else if (isAtLock(deg)) {
+      } else if (isAtLock(deg)) {
         nextState = LOCK;
         Serial.println("FSM: BUSY_WAIT -> LOCK");
       }
@@ -221,12 +191,10 @@ void fsmTransition(int deg, unsigned long millis, Command button, Command cmd)
       if (millis - fsmState.startTime > TOL) {
         nextState = BAD;
         Serial.println("FSM: BUSY_MOVE -> BAD (timeout)");
-      }
-      else if (isAtUnlock(deg)) {
+      } else if (isAtUnlock(deg)) {
         nextState = UNLOCK;
         Serial.println("FSM: BUSY_MOVE -> UNLOCK");
-      }
-      else if (isAtLock(deg)) {
+      } else if (isAtLock(deg)) {
         nextState = LOCK;
         Serial.println("FSM: BUSY_MOVE -> LOCK");
       }
@@ -241,11 +209,9 @@ void fsmTransition(int deg, unsigned long millis, Command button, Command cmd)
   fsmState.currentState = nextState;
 }
 
-void testAngle()
-{
+void testAngle() {
   int deg;
-  while (deg = Serial.parseInt())
-  {
+  while (deg = Serial.parseInt()) {
     Serial.print("Turning to ");
     Serial.println(deg);
     Seek(myservo, feedbackPin, deg);
@@ -253,8 +219,7 @@ void testAngle()
   }
 }
 
-void loop()
-{
+void loop() {
   // Read button states
   int lockButton = digitalRead(lockPin);
   int unlockButton = digitalRead(unlockPin);
@@ -264,8 +229,7 @@ void loop()
   if (lockButton == HIGH) {
     cmd = LOCK_CMD;
     Serial.println("Lock button pressed");
-  }
-  else if (unlockButton == HIGH) {
+  } else if (unlockButton == HIGH) {
     cmd = UNLOCK_CMD;
     Serial.println("Unlock button pressed");
   }
