@@ -9,7 +9,7 @@ export interface PushCommand{
     motorCommand: MotorCommand;
 }
 
-enum MotorCommand {
+export enum MotorCommand {
     Lock = "LOCK",
     Unlock = "UNLOCK"
 }
