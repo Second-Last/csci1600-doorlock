@@ -1,17 +1,10 @@
 import { Text, View, KeyboardAvoidingView, TextInput, TouchableOpacity } from "react-native";
-import { useState } from 'react';
+import { useLocalSearchParams } from "expo-router";
 import { pushMotorCommand } from "./api/api";
 import { MotorCommand } from "./api/models";
 
-interface Props{
-    serverAddr: string;
-    serverPass: string;
-}
 
-export default function PushCommand({
-    serverAddr,
-    serverPass
-}: Props) {
+export default function PushCommand() {
 
     // Locked + isMoving = Currently moving to be in the locked state
     // Unlocked + isMoving = Currently moving to be in the unlocked state
@@ -20,10 +13,12 @@ export default function PushCommand({
     // const [isMoving, setIsMoving] = useState<boolean>(false);
     // const [isLocked, setIsLocked] = useState<boolean>(false);
     // const [isUnlocked, setIsUnlocked] = useState<boolean>(false);
+    const params = useLocalSearchParams();
+    const { serverAddress, serverPass } = params;
 
     const handlePushCommand = async (motorCommand: MotorCommand) => {        
         const response = await pushMotorCommand({
-            serverAddress: serverAddr,
+            serverAddress: serverAddress,
             serverPass: serverPass,
             motorCommand: motorCommand
         })

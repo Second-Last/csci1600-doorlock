@@ -1,21 +1,36 @@
 import { Text, View, KeyboardAvoidingView, TextInput, TouchableOpacity } from "react-native";
 import { useState, useEffect } from 'react';
+import { pingLockServer } from "./api/api";
+import { useRouter } from 'expo-router';
 
 export default function Index() {
 
-  const [serverAddr, setServerAddr] = useState<string>();
+  const router = useRouter()
+  const [serverAddress, setServerAddress] = useState<string>();
   const [serverPass, setServerPass] = useState<string>();
 
+  const handlePingLockServer = async () => {
+    if(!serverAddress || !serverPass){
+      return;
+    }
+    
+    const response = await pingLockServer({
+      serverAddress: serverAddress,
+      serverPass: serverPass  
+    })
+
+    if(response.status === 200){
+      router.push({
+        pathname: '/commands', 
+        params: {
+          serverAddress: serverAddress,
+          serverPass: serverPass
+        }
+      });
+    }
+  }
+
   return (
-    // <View
-    //   style={{
-    //     flex: 1,
-    //     justifyContent: "center",
-    //     alignItems: "center",
-    //   }}
-    // >
-    //   <Text>Edit app/index.tsx to edit this screen.</Text>
-    // </View>
     <View
       style={{
         flex: 1,
@@ -25,14 +40,16 @@ export default function Index() {
       >
       <TextInput
         placeholder="Server Address"
-        onChangeText={setServerAddr}
+        onChangeText={setServerAddress}
         />
       <TextInput
         placeholder="Password"
         onChangeText={setServerPass}
         secureTextEntry={true}
         />
-      <TouchableOpacity>
+      <TouchableOpacity
+        onPress={handlePingLockServer}
+        >
         <Text>Connect</Text>
       </TouchableOpacity>
     </View>
