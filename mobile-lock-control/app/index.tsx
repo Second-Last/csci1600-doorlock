@@ -6,8 +6,8 @@ import { useRouter } from 'expo-router';
 export default function Index() {
 
   const router = useRouter()
-  const [serverAddress, setServerAddress] = useState<string>();
-  const [serverPass, setServerPass] = useState<string>();
+  const [serverAddress, setServerAddress] = useState<string>("");
+  const [serverPass, setServerPass] = useState<string>("...");
 
   const handlePingLockServer = async () => {
     if(!serverAddress || !serverPass){
@@ -38,6 +38,9 @@ export default function Index() {
         alignItems: "center"
       }}
       >
+      <Text>
+        Connect to Remote Lock
+      </Text>
       <TextInput
         placeholder="Server Address"
         onChangeText={setServerAddress}

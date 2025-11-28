@@ -2,7 +2,7 @@ import { Text, View, KeyboardAvoidingView, TextInput, TouchableOpacity } from "r
 import { useLocalSearchParams } from "expo-router";
 import { pushMotorCommand } from "./api/api";
 import { MotorCommand } from "./api/models";
-
+import { useRouter } from 'expo-router';
 
 export default function PushCommand() {
 
@@ -13,6 +13,7 @@ export default function PushCommand() {
     // const [isMoving, setIsMoving] = useState<boolean>(false);
     // const [isLocked, setIsLocked] = useState<boolean>(false);
     // const [isUnlocked, setIsUnlocked] = useState<boolean>(false);
+    const router = useRouter();
     const params = useLocalSearchParams();
     const { serverAddress, serverPass } = params;
 
@@ -29,6 +30,10 @@ export default function PushCommand() {
         }
     }
 
+    const returnHome = () => {
+        router.push('/');
+    }
+
     return (
         <View
         style={{
@@ -37,6 +42,9 @@ export default function PushCommand() {
             alignItems: "center"
         }}
         >
+            <Text>
+                Configure Remote Lock
+            </Text>
             <TouchableOpacity
                 onPress={() => handlePushCommand(MotorCommand.Lock)}
             >
@@ -49,6 +57,13 @@ export default function PushCommand() {
             >
                 <Text>
                     Unlock
+                </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+                onPress={returnHome}
+            >
+                <Text>
+                    Disconnect
                 </Text>
             </TouchableOpacity>
         </View>
