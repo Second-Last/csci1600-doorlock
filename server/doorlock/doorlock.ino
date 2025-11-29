@@ -1,6 +1,10 @@
 #include <Servo.h>
 
+#include "ArduinoGraphics.h"
+#include "Arduino_LED_Matrix.h"
+
 Servo myservo;
+ArduinoLEDMatrix matrix;
 
 // Control and feedback pins
 const int servoPin = 9;
@@ -31,6 +35,7 @@ struct FSMState {
 
 // Global FSM state
 FSMState fsmState;
+State lastDisplayedState = BAD;  // Track last displayed state to avoid unnecessary updates
 
 // Timeout constant (milliseconds)
 const unsigned long TOL = 5000;  // 5 second timeout for moves
@@ -41,6 +46,51 @@ const int UNLOCK_ANGLE = 50;
 
 // Angle tolerance for position checking (degrees)
 const int ANGLE_TOLERANCE = 3;
+
+// Function to display text on LED matrix
+void displayText(const char* text) {
+  matrix.beginDraw();
+  matrix.stroke(0xFFFFFFFF);
+  matrix.textFont(Font_4x6);
+  matrix.beginText(0, 1, 0xFFFFFF);
+  matrix.println(text);
+  matrix.endText();
+  matrix.endDraw();
+}
+
+// Function to update LED matrix based on FSM state
+void updateMatrixDisplay() {
+  // Only update if state has changed
+  if (fsmState.currentState == lastDisplayedState) {
+    return;
+  }
+
+  lastDisplayedState = fsmState.currentState;
+
+  switch (fsmState.currentState) {
+    case CALIBRATE_LOCK:
+      displayText("CL");
+      break;
+    case CALIBRATE_UNLOCK:
+      displayText("CU");
+      break;
+    case UNLOCK:
+      displayText("U");
+      break;
+    case LOCK:
+      displayText("L");
+      break;
+    case BUSY_WAIT:
+      displayText("BW");
+      break;
+    case BUSY_MOVE:
+      displayText("BM");
+      break;
+    case BAD:
+      displayText("!!");
+      break;
+  }
+}
 
 /*
   This function establishes the feedback values for 2 positions of the servo.
@@ -64,6 +114,13 @@ void setup() {
   Serial.begin(9600);
   while (!Serial);
 
+  // Initialize Arduino LED Matrix FIRST to test it
+  matrix.begin();
+  Serial.println("Testing LED Matrix - displaying test text");
+  displayText("OK");
+  delay(2000);  // Show test pattern for 2 seconds
+  Serial.println("LED Matrix test complete");
+
   // Setup button pins
   pinMode(lockPin, INPUT);
   pinMode(unlockPin, INPUT);
@@ -85,6 +142,9 @@ void setup() {
 
   Serial.println("FSM initialized in CALIBRATE_LOCK state");
   Serial.println("Hardcoded angles - Lock: 120, Unlock: 50");
+
+  // Display initial state
+  updateMatrixDisplay();
 
   // Run through calibration states. Manually rotate the motor to simulate user
   // calibration.
@@ -239,6 +299,9 @@ void loop() {
 
   // Run FSM transition
   fsmTransition(currentDeg, millis(), NONE, cmd);
+
+  // Update LED matrix display
+  updateMatrixDisplay();
 
   // Small delay to debounce buttons
   delay(100);
