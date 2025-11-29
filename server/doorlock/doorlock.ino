@@ -2,6 +2,8 @@
 
 #include "ArduinoGraphics.h"
 #include "Arduino_LED_Matrix.h"
+#include "WiFiS3.h"
+#include "arduino_secrets.h"
 
 Servo myservo;
 ArduinoLEDMatrix matrix;
@@ -9,8 +11,6 @@ ArduinoLEDMatrix matrix;
 // Control and feedback pins
 const int servoPin = 9;
 const int feedbackPin = A0;
-const int lockPin = 2;
-const int unlockPin = 3;
 
 // Calibration values
 int minDegrees;
@@ -47,6 +47,12 @@ const int UNLOCK_ANGLE = 50;
 // Angle tolerance for position checking (degrees)
 const int ANGLE_TOLERANCE = 3;
 
+// WiFi setup
+char ssid[] = SECRET_SSID;
+char pass[] = SECRET_PASS;
+int status = WL_IDLE_STATUS;
+WiFiServer server(80);
+
 // Function to display text on LED matrix
 void displayText(const char* text) {
   matrix.beginDraw();
@@ -56,6 +62,27 @@ void displayText(const char* text) {
   matrix.println(text);
   matrix.endText();
   matrix.endDraw();
+}
+
+// Function to print WiFi status
+void printWifiStatus() {
+  // print the SSID of the network you're attached to:
+  Serial.print("SSID: ");
+  Serial.println(WiFi.SSID());
+
+  // print your board's IP address:
+  IPAddress ip = WiFi.localIP();
+  Serial.print("IP Address: ");
+  Serial.println(ip);
+
+  // print the received signal strength:
+  long rssi = WiFi.RSSI();
+  Serial.print("signal strength (RSSI):");
+  Serial.print(rssi);
+  Serial.println(" dBm");
+  // print where to go in a browser:
+  Serial.print("To see this page in action, open a browser to http://");
+  Serial.println(ip);
 }
 
 // Function to update LED matrix based on FSM state
@@ -121,9 +148,30 @@ void setup() {
   delay(2000);  // Show test pattern for 2 seconds
   Serial.println("LED Matrix test complete");
 
-  // Setup button pins
-  pinMode(lockPin, INPUT);
-  pinMode(unlockPin, INPUT);
+  // WiFi setup
+  Serial.println(SECRET_SSID);
+  Serial.println(SECRET_PASS);
+
+  // check for the WiFi module:
+  if (WiFi.status() == WL_NO_MODULE) {
+    Serial.println("Communication with WiFi module failed!");
+    while (true);
+  }
+
+  String fv = WiFi.firmwareVersion();
+  if (fv < WIFI_FIRMWARE_LATEST_VERSION) {
+    Serial.println("Please upgrade the firmware");
+  }
+
+  // attempt to connect to WiFi network:
+  while (status != WL_CONNECTED) {
+    Serial.print("Attempting to connect to Network named: ");
+    Serial.println(ssid);
+    status = WiFi.begin(ssid, pass);
+    delay(10000);
+  }
+  server.begin();
+  printWifiStatus();
 
   myservo.attach(servoPin);
 
@@ -280,18 +328,46 @@ void testAngle() {
 }
 
 void loop() {
-  // Read button states
-  int lockButton = digitalRead(lockPin);
-  int unlockButton = digitalRead(unlockPin);
-
-  // Determine command based on button press
+  // Handle WiFi clients
+  WiFiClient client = server.available();
   Command cmd = NONE;
-  if (lockButton == HIGH) {
-    cmd = LOCK_CMD;
-    Serial.println("Lock button pressed");
-  } else if (unlockButton == HIGH) {
-    cmd = UNLOCK_CMD;
-    Serial.println("Unlock button pressed");
+  if (client) {
+    Serial.println("new client");
+    String currentLine = "";
+    while (client.connected()) {
+      if (client.available()) {
+        char c = client.read();
+        Serial.write(c);
+        if (c == '\n') {
+          if (currentLine.length() == 0) {
+            // HTTP headers
+            // TODO(gz): just return HTTP 200 if cmd != NONE
+            client.println("HTTP/1.1 200 OK");
+            client.println("Content-type:text/html");
+            client.println("Access-Control-Allow-Origin: *");
+            client.println();
+            client.println("<p>Doorlock server</p>");
+            client.println();
+            break;
+          } else {
+            // Check for commands
+            if (currentLine.startsWith("POST /lock")) {
+              cmd = LOCK_CMD;
+              Serial.println("Received LOCK command");
+            } else if (currentLine.startsWith("POST /unlock")) {
+              cmd = UNLOCK_CMD;
+              Serial.println("Received UNLOCK command");
+            }
+
+            currentLine = "";
+          }
+        } else if (c != '\r') {
+          currentLine += c;
+        }
+      }
+    }
+    client.stop();
+    Serial.println("client disconnected");
   }
 
   // Get current servo position
@@ -303,6 +379,6 @@ void loop() {
   // Update LED matrix display
   updateMatrixDisplay();
 
-  // Small delay to debounce buttons
+  // Small delay
   delay(100);
 }
