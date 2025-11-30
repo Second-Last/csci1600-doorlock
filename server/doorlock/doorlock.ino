@@ -49,7 +49,9 @@ const int ANGLE_TOLERANCE = 3;
 
 // WiFi setup
 char ssid[] = SECRET_SSID;
+#ifdef SECRET_PASS
 char pass[] = SECRET_PASS;
+#endif
 int status = WL_IDLE_STATUS;
 WiFiServer server(80);
 
@@ -64,6 +66,20 @@ void displayText(const char* text) {
   matrix.endDraw();
 }
 
+// Prints MAC address
+void printMacAddress(byte mac[]) {
+  for (int i = 0; i < 6; i++) {
+    if (i > 0) {
+      Serial.print(":");
+    }
+    if (mac[i] < 16) {
+      Serial.print("0");
+    }
+    Serial.print(mac[i], HEX);
+  }
+  Serial.println();
+}
+
 // Function to print WiFi status
 void printWifiStatus() {
   // print the SSID of the network you're attached to:
@@ -74,6 +90,12 @@ void printWifiStatus() {
   IPAddress ip = WiFi.localIP();
   Serial.print("IP Address: ");
   Serial.println(ip);
+
+  // print MAC address
+  byte mac[6];
+  WiFi.macAddress(mac);
+  Serial.print("MAC address: ");
+  printMacAddress(mac);
 
   // print the received signal strength:
   long rssi = WiFi.RSSI();
@@ -150,7 +172,9 @@ void setup() {
 
   // WiFi setup
   Serial.println(SECRET_SSID);
+#ifdef SECRET_PASS
   Serial.println(SECRET_PASS);
+#endif
 
   // check for the WiFi module:
   if (WiFi.status() == WL_NO_MODULE) {
@@ -167,7 +191,11 @@ void setup() {
   while (status != WL_CONNECTED) {
     Serial.print("Attempting to connect to Network named: ");
     Serial.println(ssid);
+#ifdef SECRET_PASS
     status = WiFi.begin(ssid, pass);
+#else
+    status = WiFi.begin(ssid);
+#endif
     delay(10000);
   }
   server.begin();
