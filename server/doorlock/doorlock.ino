@@ -196,14 +196,14 @@ void setup() {
 #else
     status = WiFi.begin(ssid);
 #endif
-    delay(10000);
+    delay(2000);
   }
   server.begin();
   printWifiStatus();
 
   myservo.attach(servoPin);
 
-  calibrate(myservo, feedbackPin, 50, 140);  // calibrate for the 20-160 degree range
+  calibrate(myservo, feedbackPin, UNLOCK_ANGLE, LOCK_ANGLE);  // calibrate for the 20-160 degree range
   Serial.print("minFeedback: ");
   Serial.println(minFeedback);
   Serial.print("maxFeedback: ");
@@ -228,7 +228,7 @@ void setup() {
   // control of the motor
   fsmTransition(LOCK_ANGLE, millis(), NONE, NONE);
   fsmTransition(UNLOCK_ANGLE, millis(), NONE, NONE);
-  myservo.write(50);
+  myservo.write(UNLOCK_ANGLE);
   delay(1000);
 
   Serial.println("FSM ready - now in UNLOCK state");
@@ -292,7 +292,8 @@ void fsmTransition(int deg, unsigned long millis, Command button, Command cmd) {
         Serial.println("FSM: UNLOCK -> LOCK");
       } else if (!isAtLock(deg) && !isAtUnlock(deg)) {
         nextState = BUSY_WAIT;
-        Serial.println("FSM: UNLOCK -> BUSY_WAIT (manual turn detected)");
+        Serial.print("FSM: UNLOCK -> BUSY_WAIT (manual turn detected), deg=");
+        Serial.println(deg);
       }
       break;
 
@@ -307,7 +308,8 @@ void fsmTransition(int deg, unsigned long millis, Command button, Command cmd) {
         Serial.println("FSM: LOCK -> UNLOCK");
       } else if (!isAtLock(deg) && !isAtUnlock(deg)) {
         nextState = BUSY_WAIT;
-        Serial.println("FSM: LOCK -> BUSY_WAIT (manual turn detected)");
+        Serial.print("FSM: LOCK -> BUSY_WAIT (manual turn detected), deg=");
+        Serial.println(deg);
       }
       break;
 
