@@ -3,12 +3,18 @@ import { StyleSheet } from "react-native";
 import { useState, useEffect } from 'react';
 import { pingLockServer } from "./api/api";
 import { useRouter } from 'expo-router';
+import { useFonts } from "expo-font";
 
 export default function Index() {
 
   const router = useRouter()
   const [serverAddress, setServerAddress] = useState<string>("");
   const [serverPass, setServerPass] = useState<string>("...");
+
+  const [fontsLoaded, fontError] = useFonts({
+    "SpaceGrotesk-Regular": require("../assets/fonts/SpaceGrotesk-Regular.ttf"),
+    "SpaceGrotesk-Bold": require("../assets/fonts/SpaceGrotesk-Bold.ttf")
+  });
 
   const handlePingLockServer = async () => {
     if(!serverAddress || !serverPass){
@@ -39,7 +45,7 @@ export default function Index() {
         alignItems: "center"
       }}
       >
-      <Text>
+      <Text style={styles.pageTitle}>
         Connect to Remote Lock
       </Text>
       <TextInput
@@ -64,6 +70,11 @@ export default function Index() {
 }
 
 const styles = StyleSheet.create({
+  pageTitle: {
+    fontSize: 32,
+    fontFamily: 'SpaceGrotesk-Bold',
+    paddingVertical: 24,
+  },
   connectInput: {
     borderColor: '#C00404',
     borderWidth: 1.5,
