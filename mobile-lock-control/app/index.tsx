@@ -1,4 +1,5 @@
 import { Text, View, KeyboardAvoidingView, TextInput, TouchableOpacity } from "react-native";
+import { StyleSheet } from "react-native";
 import { useState, useEffect } from 'react';
 import { pingLockServer } from "./api/api";
 import { useRouter } from 'expo-router';
@@ -44,17 +45,54 @@ export default function Index() {
       <TextInput
         placeholder="Server Address"
         onChangeText={setServerAddress}
+        style={styles.connectInput}
         />
       <TextInput
         placeholder="Password"
         onChangeText={setServerPass}
         secureTextEntry={true}
+        style={styles.connectInput}
         />
       <TouchableOpacity
         onPress={handlePingLockServer}
+        style={styles.connectButton}
         >
-        <Text>Connect</Text>
+        <Text style={styles.connectText}>Connect</Text>
       </TouchableOpacity>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  connectInput: {
+    borderColor: '#C00404',
+    borderWidth: 1.5,
+    borderRadius: 10,
+    padding: 20,
+    paddingVertical: 15,
+    fontSize: 18,
+    fontFamily: 'SpaceGrotesk-Regular',
+    margin: 20,
+    marginBottom: 0,
+    width: 300
+  },
+  connectButton: {
+    marginTop: 50,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderRadius: 17.5,
+    padding: 20,
+    paddingVertical: 12.5,
+    width: 300,
+    backgroundColor: '#C00404',
+    borderColor: '#C00404'
+  },
+  connectText: {
+    textAlign: 'center',
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 18,
+    letterSpacing: 1,
+    fontFamily: 'SpaceGrotesk-Bold',
+  }
+})

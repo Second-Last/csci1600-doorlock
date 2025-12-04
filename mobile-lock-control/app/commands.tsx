@@ -1,8 +1,10 @@
 import { Text, View, KeyboardAvoidingView, TextInput, TouchableOpacity } from "react-native";
+import { StyleSheet } from 'react-native';
 import { useLocalSearchParams } from "expo-router";
 import { pushMotorCommand } from "./api/api";
 import { MotorCommand } from "./api/models";
 import { useRouter } from 'expo-router';
+
 
 export default function PushCommand() {
 
@@ -69,3 +71,18 @@ export default function PushCommand() {
         </View>
     );
 }
+
+const styles = StyleSheet.create({
+      connectInput: {
+        borderColor: '#C00404',
+        borderWidth: 1.5,
+        borderRadius: 10,
+        padding: 20,
+        paddingVertical: 15,
+        fontSize: 18,
+        fontFamily: 'SpaceGrotesk-Regular',
+        margin: 20,
+        marginBottom: 0,
+        width: 300
+    },
+})
