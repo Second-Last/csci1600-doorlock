@@ -193,6 +193,8 @@ bool constantTimeCompare(const unsigned char* a, const unsigned char* b, size_t 
 // Verify HMAC authentication
 // Returns true if authentication succeeds
 bool verifyAuthentication(const String& nonce, const String& signature) {
+  // // TODO(gz): temporary for testing.
+  // return true;
   // Parse nonce as unsigned long
   unsigned long requestTimestamp = nonce.toInt();
   if (requestTimestamp == 0 && nonce != "0") {
@@ -205,8 +207,8 @@ bool verifyAuthentication(const String& nonce, const String& signature) {
   EEPROM.get(EEPROM_TIMESTAMP_ADDR, lastTimestamp);
 
   // Check replay protection with 5-second window
-  if (requestTimestamp <= lastTimestamp || requestTimestamp > lastTimestamp + REPLAY_WINDOW) {
-    Serial.print("Auth failed: replay/timestamp check. Request: ");
+  if (requestTimestamp <= max(5, lastTimestamp) - 5) {
+    Serial.print("Auth failed: replay/timestamp check. Request too old. Request: ");
     Serial.print(requestTimestamp);
     Serial.print(", Last: ");
     Serial.println(lastTimestamp);
@@ -258,6 +260,7 @@ void calibrate(Servo servo, int analogPin, int minPos, int maxPos) {
 void setup() {
   Serial.begin(9600);
   while (!Serial);
+  EEPROM.put(EEPROM_TIMESTAMP_ADDR, 0);
 
   // Initialize Arduino LED Matrix FIRST to test it
   matrix.begin();
@@ -473,18 +476,25 @@ void loop() {
     String signature = "";
     bool isPostLock = false;
     bool isPostUnlock = false;
+    bool isOptions = false;
 
     while (client.connected()) {
       if (client.available()) {
         char c = client.read();
         Serial.write(c);
 
+        // TODO(gz): drop buffer processing
         if (c == '\n') {
           if (currentLine.length() == 0) {
             // End of headers - now validate authentication
 
             // Determine which command was requested
-            if (isPostLock) {
+            if (isOptions) {
+              client.println("HTTP/1.1 204 No Content");
+              client.println("Access-Control-Allow-Origin: *");
+              client.println("Access-Control-Allow-Headers: Content-Type, X-Nonce, X-Signature");
+              client.println("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+            } else if (isPostLock) {
               // Verify authentication
               if (verifyAuthentication(nonce, signature)) {
                 cmd = LOCK_CMD;
@@ -537,7 +547,11 @@ void loop() {
             break;
           } else {
             // Parse headers
-            if (currentLine.startsWith("POST /lock")) {
+            if (currentLine.startsWith("OPTIONS /lock") ||
+                currentLine.startsWith("OPTIONS /unlock")) {
+              isOptions = true;
+              Serial.println("Received OPTIONS request");
+            } else if (currentLine.startsWith("POST /lock")) {
               isPostLock = true;
               Serial.println("Received LOCK request");
             } else if (currentLine.startsWith("POST /unlock")) {
