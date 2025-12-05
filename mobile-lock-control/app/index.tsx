@@ -1,9 +1,10 @@
-import { Text, View, KeyboardAvoidingView, TextInput, TouchableOpacity } from "react-native";
+import { Text, View, KeyboardAvoidingView, Image, TextInput, TouchableOpacity } from "react-native";
 import { StyleSheet } from "react-native";
 import { useState, useEffect } from 'react';
 import { pingLockServer } from "./api/api";
 import { useRouter } from 'expo-router';
 import { useFonts } from "expo-font";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function Index() {
 
@@ -42,38 +43,59 @@ export default function Index() {
       style={{
         flex: 1,
         justifyContent: "center",
-        alignItems: "center"
+        alignItems: "center",
+        marginHorizontal: 15
       }}
       >
       <Text style={styles.pageTitle}>
         Connect to Remote Lock
       </Text>
-      <TextInput
+      <Image
+        source={ require('../assets/images/internet-icon.png')}
+        style={styles.lockImage}
+        />
+
+      <View
+        style={{
+          marginVertical: 20,
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+        >
+        <TextInput
         placeholder="Server Address"
         onChangeText={setServerAddress}
         style={styles.connectInput}
         />
-      <TextInput
-        placeholder="Password"
-        onChangeText={setServerPass}
-        secureTextEntry={true}
-        style={styles.connectInput}
-        />
-      <TouchableOpacity
-        onPress={handlePingLockServer}
-        style={styles.connectButton}
-        >
-        <Text style={styles.connectText}>Connect</Text>
-      </TouchableOpacity>
+        <TextInput
+          placeholder="Password"
+          onChangeText={setServerPass}
+          secureTextEntry={true}
+          style={styles.connectInput}
+          />
+        <TouchableOpacity
+          onPress={handlePingLockServer}
+          style={styles.connectButton}
+          >
+          <Text style={styles.connectText}>Connect</Text>
+        </TouchableOpacity>
+      </View>
+      
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   pageTitle: {
-    fontSize: 32,
+    fontSize: 36,
     fontFamily: 'SpaceGrotesk-Bold',
     paddingVertical: 24,
+    textAlign: 'center'
+  },
+  lockImage: {
+    width: 125,
+    height: 125,
+    resizeMode: 'contain'
   },
   connectInput: {
     borderColor: '#C00404',

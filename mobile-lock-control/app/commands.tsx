@@ -1,23 +1,26 @@
-import { Text, View, KeyboardAvoidingView, TextInput, TouchableOpacity } from "react-native";
+import { Text, View, KeyboardAvoidingView, Image, TouchableOpacity } from "react-native";
 import { StyleSheet } from 'react-native';
 import { useLocalSearchParams } from "expo-router";
 import { pushMotorCommand } from "./api/api";
 import { MotorCommand } from "./api/models";
 import { useRouter } from 'expo-router';
-
+import { useFonts } from "expo-font";
+import { useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function PushCommand() {
 
-    // Locked + isMoving = Currently moving to be in the locked state
-    // Unlocked + isMoving = Currently moving to be in the unlocked state
-    // Locked + !isMoving = Currently held in the locked state
-    // Unlocked + !isMoving = Currently held in the unlocked state
-    // const [isMoving, setIsMoving] = useState<boolean>(false);
-    // const [isLocked, setIsLocked] = useState<boolean>(false);
-    // const [isUnlocked, setIsUnlocked] = useState<boolean>(false);
+    const [isLocked, setIsLocked] = useState<boolean | null>(null);
+    
     const router = useRouter();
     const params = useLocalSearchParams();
     const { serverAddress, serverPass } = params;
+    
+    const [fontsLoaded, fontError] = useFonts({
+        "SpaceGrotesk-Regular": require("../assets/fonts/SpaceGrotesk-Regular.ttf"),
+        "SpaceGrotesk-Bold": require("../assets/fonts/SpaceGrotesk-Bold.ttf")
+    });
+    
 
     const handlePushCommand = async (motorCommand: MotorCommand) => {        
         const response = await pushMotorCommand({
@@ -27,13 +30,19 @@ export default function PushCommand() {
         })
 
         if(response.status === 200){
-            console.log("Command received");
-            // setIsMoving(true);
+            if(motorCommand === MotorCommand.Lock){
+                setIsLocked(true);
+            }
+            else{
+                setIsLocked(false);
+            }
         }
-    }
-
-    const returnHome = () => {
-        router.push('/');
+        if(motorCommand === MotorCommand.Lock){
+                setIsLocked(true);
+            }
+            else{
+                setIsLocked(false);
+            }
     }
 
     return (
@@ -44,45 +53,131 @@ export default function PushCommand() {
             alignItems: "center"
         }}
         >
-            <Text>
+            <Text style={styles.pageTitle}>
                 Configure Remote Lock
             </Text>
-            <TouchableOpacity
-                onPress={() => handlePushCommand(MotorCommand.Lock)}
-            >
-                <Text>
-                    Lock
+            
+            <Image
+                source={ isLocked ? require('../assets/images/lock-icon.png') : require('../assets/images/unlock-icon.jpg')}
+                style={styles.lockImage}
+            />
+
+            <View
+                style={{
+                    flexDirection: 'row',
+                    marginVertical: 20
+                }}
+                >
+                <Text style={{
+                    color: 'black',
+                    fontFamily: 'SpaceGrotesk-Bold',
+                    fontSize: 22
+                }}>
+                    Status:
                 </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-                onPress={() => handlePushCommand(MotorCommand.Unlock)}
-            >
-                <Text>
-                    Unlock
+                <Text style={[{
+                    fontFamily: 'SpaceGrotesk-Regular',
+                    fontSize: 22
+                }, 
+                    isLocked && { color: '#C00404'}, 
+                    !isLocked && { color: 'green'}
+                ]}>
+                    {isLocked ? " Locked" : " Unlocked"} 
                 </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-                onPress={returnHome}
-            >
-                <Text>
-                    Disconnect
-                </Text>
-            </TouchableOpacity>
+            </View>
+            
+            <View
+                style={{
+                    marginVertical: 20,
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                }}
+                >
+                
+                <View
+                    style={{
+                        flexDirection: 'row',
+                    }}
+                >
+                    <TouchableOpacity
+                        onPress={() => handlePushCommand(MotorCommand.Lock)}
+                        style={styles.commandButton}
+                    >
+                        <Text style={styles.commandText}>
+                            Lock
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        onPress={() => handlePushCommand(MotorCommand.Unlock)}
+                        style={styles.commandButton}
+                    >
+                        <Text style={styles.commandText}>
+                            Unlock
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+                 
+                <TouchableOpacity
+                    onPress={() => { router.push("/") }}
+                    style={styles.disconnectButton}>
+                    <Text
+                        style={styles.disconnectText}>
+                        Disconnect
+                    </Text>
+                </TouchableOpacity>
+            </View>
+           
         </View>
     );
 }
 
+
 const styles = StyleSheet.create({
-      connectInput: {
-        borderColor: '#C00404',
-        borderWidth: 1.5,
-        borderRadius: 10,
-        padding: 20,
-        paddingVertical: 15,
-        fontSize: 18,
-        fontFamily: 'SpaceGrotesk-Regular',
-        margin: 20,
-        marginBottom: 0,
-        width: 300
-    },
+  pageTitle: {
+    fontSize: 36,
+    fontFamily: 'SpaceGrotesk-Bold',
+    paddingVertical: 24,
+    textAlign: 'center'
+  },
+    lockImage: {
+    width: 125,
+    height: 125,
+    resizeMode: 'contain'
+  },
+  commandButton: {
+    margin: 10,
+    backgroundColor: 'black',
+    borderWidth: 1,
+    borderRadius: 12.5,
+    padding: 20,
+    paddingVertical: 12.5,
+    width: 100,
+    borderColor: 'black'
+  },
+  commandText: {
+    textAlign: 'center',
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 14,
+    fontFamily: 'SpaceGrotesk-Regular'
+  },
+  disconnectButton: {
+    marginTop: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderRadius: 17.5,
+    padding: 20,
+    paddingVertical: 12.5,
+    width: 300,
+    backgroundColor: '#C00404',
+    borderColor: '#C00404'
+  },
+  disconnectText: {
+    textAlign: 'center',
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 18,
+    letterSpacing: 1,
+    fontFamily: 'SpaceGrotesk-Bold',
+  }
 })
