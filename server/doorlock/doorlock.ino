@@ -469,6 +469,7 @@ void loop() {
   WiFiClient client = server.available();
   Command cmd = NONE;
 
+  bool hasRequest = false;
   if (client) {
     Serial.println("new client");
     String currentLine = "";
@@ -499,15 +500,8 @@ void loop() {
               if (verifyAuthentication(nonce, signature)) {
                 cmd = LOCK_CMD;
                 Serial.println("Authenticated LOCK command");
-
-                client.println("HTTP/1.1 200 OK");
-                client.println("Content-type:text/html");
-                client.println("Access-Control-Allow-Origin: *");
-                client.println();
-                client.println("<p>Lock command authenticated</p>");
               } else {
                 Serial.println("LOCK authentication failed");
-
                 client.println("HTTP/1.1 401 Unauthorized");
                 client.println("Content-type:text/html");
                 client.println("Access-Control-Allow-Origin: *");
@@ -519,12 +513,6 @@ void loop() {
               if (verifyAuthentication(nonce, signature)) {
                 cmd = UNLOCK_CMD;
                 Serial.println("Authenticated UNLOCK command");
-
-                client.println("HTTP/1.1 200 OK");
-                client.println("Content-type:text/html");
-                client.println("Access-Control-Allow-Origin: *");
-                client.println();
-                client.println("<p>Unlock command authenticated</p>");
               } else {
                 Serial.println("UNLOCK authentication failed");
 
@@ -543,7 +531,6 @@ void loop() {
               client.println("<p>Doorlock server</p>");
             }
 
-            client.println();
             break;
           } else {
             // Parse headers
@@ -576,9 +563,6 @@ void loop() {
         }
       }
     }
-
-    client.stop();
-    Serial.println("client disconnected");
   }
 
   // Get current servo position
@@ -589,6 +573,46 @@ void loop() {
 
   // Update LED matrix display
   updateMatrixDisplay();
+
+  // Return HTTP response if there is any
+  if (cmd != NONE) {
+    assert(client.connected());
+
+    State currentState = fsmState.currentState;
+    if (cmd == LOCK_CMD &&
+        (currentState == LOCK || currentState == BUSY_MOVE || currentState == UNLOCK)) {
+      client.println("HTTP/1.1 200 OK");
+      client.println("Content-type:text/html");
+      client.println("Access-Control-Allow-Origin: *");
+      client.println();
+      client.println("<p>Lock command authenticated</p>");
+    } else if (cmd == UNLOCK_CMD &&
+               (currentState == LOCK || currentState == BUSY_MOVE || currentState == UNLOCK)) {
+      client.println("HTTP/1.1 200 OK");
+      client.println("Content-type:text/html");
+      client.println("Access-Control-Allow-Origin: *");
+      client.println();
+      client.println("<p>Unlock command authenticated</p>");
+    } else {
+      Serial.print("Current state: ");
+      Serial.println(currentState);
+      client.println("HTTP/1.1 503 Service Unavailable");
+      client.println("Content-type:text/html");
+      client.println("Access-Control-Allow-Origin: *");
+      client.println();
+      client.println("<p>Sorry, the system is currently busy or in a bad state...</p>");
+    }
+
+    client.println();
+    client.stop();
+    Serial.println("client disconnected");
+  } else if (hasRequest) {
+    assert(client.connected());
+
+    client.println();
+    client.stop();
+    Serial.println("client disconnected");
+  }
 
   // Small delay
   delay(100);
