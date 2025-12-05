@@ -100,6 +100,46 @@ void loop() {
 
     Serial.println("RECEIVED POST REQUEST HAHAHA...");
 
+      int contentLength = 0;
+
+    while (client.available()) {
+      String headerLine = client.readStringUntil('\n');
+      headerLine.trim();
+
+      if (headerLine.startsWith("Content-Length:")) {
+        contentLength = headerLine.substring(strlen("Content-Length:")).toInt();
+      }
+
+      if (headerLine.length() == 0) break; // end of headers
+    }
+
+    Serial.print("Content-Length: ");
+    Serial.println(contentLength);
+
+    String body = "";
+    for (int i = 0; i < contentLength; i++) {
+      while (!client.available());  // wait for data
+      body += (char)client.read();
+    }
+
+    Serial.println("POST body received:");
+    Serial.println(body);
+
+
+    //handle body post body should look something like {"led": "on"}
+    if (body.indexOf("on") >= 0) {
+      digitalWrite(LED_BUILTIN, HIGH);
+      Serial.println("LED ON");
+    }
+    else if (body.indexOf("off") >= 0) {
+      digitalWrite(LED_BUILTIN, LOW);
+      Serial.println("LED OFF");
+    }
+    else {
+      Serial.println("Invalid LED command");
+    }
+
+
     // Then: need to send CORS
 
     client.println("HTTP/1.1 200 OK");
