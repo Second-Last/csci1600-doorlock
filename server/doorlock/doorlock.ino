@@ -62,6 +62,26 @@ const int EEPROM_TIMESTAMP_ADDR = 0;
 // Replay protection window (seconds)
 const unsigned long REPLAY_WINDOW = 5;
 
+// Function to return the state as a string
+String stateToString(State st) {
+  switch (st) {
+    case CALIBRATE_LOCK:
+      return "CALIBRATE_LOCK";
+    case CALIBRATE_UNLOCK:
+      return "CALIBRATE_UNLOCK";
+    case UNLOCK:
+      return "UNLOCK";
+    case LOCK:
+      return "LOCK";
+    case BUSY_WAIT:
+      return "BUSY_WAIT";
+    case BUSY_MOVE:
+      return "BUSY_MOVE";
+    case BAD:
+      return "BAD";
+  }
+}
+
 // Function to display text on LED matrix
 void displayText(const char* text) {
   matrix.beginDraw();
@@ -470,6 +490,7 @@ void loop() {
   Command cmd = NONE;
 
   bool hasRequest = false;
+  bool isStatus = true;
   if (client) {
     Serial.println("new client");
     String currentLine = "";
@@ -487,7 +508,8 @@ void loop() {
         // TODO(gz): drop buffer processing
         if (c == '\n') {
           if (currentLine.length() == 0) {
-            // End of headers - now validate authentication
+            // End of headers
+            hasRequest = true;
 
             // Determine which command was requested
             if (isOptions) {
@@ -522,6 +544,7 @@ void loop() {
                 client.println();
                 client.println("<p>Authentication failed</p>");
               }
+            } else if (isStatus) {
             } else {
               // No command or GET request
               client.println("HTTP/1.1 200 OK");
@@ -538,6 +561,9 @@ void loop() {
                 currentLine.startsWith("OPTIONS /unlock")) {
               isOptions = true;
               Serial.println("Received OPTIONS request");
+            } else if (currentLine.startsWith("GET /status")) {
+              isStatus = true;
+              Serial.println("Received GET /status");
             } else if (currentLine.startsWith("POST /lock")) {
               isPostLock = true;
               Serial.println("Received LOCK request");
@@ -575,39 +601,39 @@ void loop() {
   updateMatrixDisplay();
 
   // Return HTTP response if there is any
-  if (cmd != NONE) {
+  if (hasRequest) {
     assert(client.connected());
 
     State currentState = fsmState.currentState;
-    if (cmd == LOCK_CMD &&
-        (currentState == LOCK || currentState == BUSY_MOVE || currentState == UNLOCK)) {
+    if (cmd != NONE) {
+      if (cmd == LOCK_CMD &&
+          (currentState == LOCK || currentState == BUSY_MOVE || currentState == UNLOCK)) {
+        client.println("HTTP/1.1 200 OK");
+        client.println("Content-type:text/html");
+        client.println("Access-Control-Allow-Origin: *");
+        client.println();
+        client.println("<p>Lock command authenticated</p>");
+      } else if (cmd == UNLOCK_CMD &&
+                 (currentState == LOCK || currentState == BUSY_MOVE || currentState == UNLOCK)) {
+        client.println("HTTP/1.1 200 OK");
+        client.println("Content-type:text/html");
+        client.println("Access-Control-Allow-Origin: *");
+        client.println();
+        client.println("<p>Unlock command authenticated</p>");
+      } else {
+        client.println("HTTP/1.1 503 Service Unavailable");
+        client.println("Content-type:text/html");
+        client.println("Access-Control-Allow-Origin: *");
+        client.println();
+        client.println("<p>Sorry, the system is currently busy or in a bad state...</p>");
+      }
+    } else if (isStatus) {
       client.println("HTTP/1.1 200 OK");
-      client.println("Content-type:text/html");
+      client.println("Content-type:text/plain");
       client.println("Access-Control-Allow-Origin: *");
       client.println();
-      client.println("<p>Lock command authenticated</p>");
-    } else if (cmd == UNLOCK_CMD &&
-               (currentState == LOCK || currentState == BUSY_MOVE || currentState == UNLOCK)) {
-      client.println("HTTP/1.1 200 OK");
-      client.println("Content-type:text/html");
-      client.println("Access-Control-Allow-Origin: *");
-      client.println();
-      client.println("<p>Unlock command authenticated</p>");
-    } else {
-      Serial.print("Current state: ");
-      Serial.println(currentState);
-      client.println("HTTP/1.1 503 Service Unavailable");
-      client.println("Content-type:text/html");
-      client.println("Access-Control-Allow-Origin: *");
-      client.println();
-      client.println("<p>Sorry, the system is currently busy or in a bad state...</p>");
+      client.println(stateToString(currentState));
     }
-
-    client.println();
-    client.stop();
-    Serial.println("client disconnected");
-  } else if (hasRequest) {
-    assert(client.connected());
 
     client.println();
     client.stop();
