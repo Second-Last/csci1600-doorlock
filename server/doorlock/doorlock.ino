@@ -3,6 +3,7 @@
 #include <Arduino_LED_Matrix.h>
 #include <EEPROM.h>
 #include <Servo.h>
+#include <WDT.h>
 #include <WiFiS3.h>
 
 #include "arduino_secrets.h"
@@ -41,6 +42,8 @@ State lastDisplayedState = BAD;  // Track last displayed state to avoid unnecess
 
 // Timeout constant (milliseconds)
 const unsigned long TOL = 5000;  // 5 second timeout for moves
+
+const long wdtInterval = 2684;
 
 // Hardcoded lock positions
 const int LOCK_ANGLE = 120;
@@ -359,6 +362,8 @@ void setup() {
   delay(1000);
 
   Serial.println("FSM ready - now in UNLOCK state");
+
+  WDT.begin(wdtInterval);
 }
 
 void Seek(Servo servo, int analogPin, int pos) {
@@ -639,6 +644,8 @@ void loop() {
     client.stop();
     Serial.println("client disconnected");
   }
+
+  WDT.refresh();
 
   // Small delay
   delay(100);
