@@ -8,6 +8,16 @@
 
 #include "arduino_secrets.h"
 
+// Uncomment exactly one below to run integration or unit tests.
+// #define INTEGRATION_TEST
+// #define UNIT_TEST
+
+#if defined(INTEGRATION_TEST) && defined(UNIT_TEST)
+  #error "INTEGRATION_TEST and UNIT_TEST cannot be both defined!"
+#elif defined(INTEGRATION_TEST) || defined(UNIT_TEST)
+  #define TESTING
+#endif
+
 Servo myservo;
 ArduinoLEDMatrix matrix;
 
@@ -283,6 +293,16 @@ void calibrate(Servo servo, int analogPin, int minPos, int maxPos) {
 void setup() {
   Serial.begin(9600);
   while (!Serial);
+
+#ifdef INTEGRATION_TEST
+  // Run integration test
+
+#elifdef UNIT_TEST
+  // Run unit tests
+
+#else
+  // The actual remote door lock!
+
   EEPROM.put(EEPROM_TIMESTAMP_ADDR, 0);
 
   // Initialize Arduino LED Matrix FIRST to test it
@@ -364,6 +384,7 @@ void setup() {
   Serial.println("FSM ready - now in UNLOCK state");
 
   WDT.begin(wdtInterval);
+#endif
 }
 
 void Seek(Servo servo, int analogPin, int pos) {
@@ -490,6 +511,7 @@ void testAngle() {
 }
 
 void loop() {
+#ifndef TESTING
   // Handle WiFi clients
   WiFiClient client = server.available();
   Command cmd = NONE;
@@ -649,4 +671,5 @@ void loop() {
 
   // Small delay
   delay(100);
+#endif
 }
