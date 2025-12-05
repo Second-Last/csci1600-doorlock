@@ -1,8 +1,10 @@
+#include <ArduinoBearSSL.h>
+#include <ArduinoGraphics.h>
+#include <Arduino_LED_Matrix.h>
+#include <EEPROM.h>
 #include <Servo.h>
+#include <WiFiS3.h>
 
-#include "ArduinoGraphics.h"
-#include "Arduino_LED_Matrix.h"
-#include "WiFiS3.h"
 #include "arduino_secrets.h"
 
 Servo myservo;
@@ -54,6 +56,11 @@ char pass[] = SECRET_PASS;
 #endif
 int status = WL_IDLE_STATUS;
 WiFiServer server(80);
+
+// EEPROM address for last valid timestamp
+const int EEPROM_TIMESTAMP_ADDR = 0;
+// Replay protection window (seconds)
+const unsigned long REPLAY_WINDOW = 5;
 
 // Function to display text on LED matrix
 void displayText(const char* text) {
@@ -141,6 +148,95 @@ void updateMatrixDisplay() {
   }
 }
 
+// Convert hex char to value (0-15)
+int hexCharToValue(char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  return -1;
+}
+
+// Convert hex string to byte array
+// Returns true on success, false on invalid hex
+bool hexToBytes(const String& hex, unsigned char* output, size_t outputLen) {
+  if (hex.length() != outputLen * 2) return false;
+
+  for (size_t i = 0; i < outputLen; i++) {
+    int high = hexCharToValue(hex.charAt(i * 2));
+    int low = hexCharToValue(hex.charAt(i * 2 + 1));
+    if (high < 0 || low < 0) return false;
+    output[i] = (high << 4) | low;
+  }
+  return true;
+}
+
+// Compute HMAC-SHA256 signature
+void computeHMAC(const String& message, const char* key, unsigned char* output) {
+  br_hmac_key_context keyCtx;
+  br_hmac_key_init(&keyCtx, &br_sha256_vtable, key, strlen(key));
+
+  br_hmac_context hmacCtx;
+  br_hmac_init(&hmacCtx, &keyCtx, 0);
+  br_hmac_update(&hmacCtx, message.c_str(), message.length());
+  br_hmac_out(&hmacCtx, output);
+}
+
+// Constant-time comparison to prevent timing attacks
+bool constantTimeCompare(const unsigned char* a, const unsigned char* b, size_t len) {
+  unsigned char result = 0;
+  for (size_t i = 0; i < len; i++) {
+    result |= a[i] ^ b[i];
+  }
+  return result == 0;
+}
+
+// Verify HMAC authentication
+// Returns true if authentication succeeds
+bool verifyAuthentication(const String& nonce, const String& signature) {
+  // Parse nonce as unsigned long
+  unsigned long requestTimestamp = nonce.toInt();
+  if (requestTimestamp == 0 && nonce != "0") {
+    Serial.println("Auth failed: invalid nonce format");
+    return false;
+  }
+
+  // Get last valid timestamp from EEPROM
+  unsigned long lastTimestamp = 0;
+  EEPROM.get(EEPROM_TIMESTAMP_ADDR, lastTimestamp);
+
+  // Check replay protection with 5-second window
+  if (requestTimestamp <= lastTimestamp || requestTimestamp > lastTimestamp + REPLAY_WINDOW) {
+    Serial.print("Auth failed: replay/timestamp check. Request: ");
+    Serial.print(requestTimestamp);
+    Serial.print(", Last: ");
+    Serial.println(lastTimestamp);
+    return false;
+  }
+
+  // Compute expected HMAC
+  unsigned char expectedHMAC[32];  // SHA256 produces 32 bytes
+  computeHMAC(nonce, REMOTE_LOCK_PASS, expectedHMAC);
+
+  // Convert hex signature to bytes
+  unsigned char receivedHMAC[32];
+  if (!hexToBytes(signature, receivedHMAC, 32)) {
+    Serial.println("Auth failed: invalid signature format");
+    return false;
+  }
+
+  // Constant-time comparison
+  if (!constantTimeCompare(expectedHMAC, receivedHMAC, 32)) {
+    Serial.println("Auth failed: signature mismatch");
+    return false;
+  }
+
+  // Update last valid timestamp in EEPROM
+  EEPROM.put(EEPROM_TIMESTAMP_ADDR, requestTimestamp);
+
+  Serial.println("Auth success");
+  return true;
+}
+
 /*
   This function establishes the feedback values for 2 positions of the servo.
   With this information, we can interpolate feedback values for intermediate positions
@@ -203,12 +299,20 @@ void setup() {
 
   myservo.attach(servoPin);
 
-  calibrate(myservo, feedbackPin, UNLOCK_ANGLE, LOCK_ANGLE);  // calibrate for the 20-160 degree range
+  calibrate(myservo, feedbackPin, UNLOCK_ANGLE,
+            LOCK_ANGLE);  // calibrate for the 20-160 degree range
   Serial.print("minFeedback: ");
   Serial.println(minFeedback);
   Serial.print("maxFeedback: ");
   Serial.println(maxFeedback);
   delay(1000);
+
+  // Initialize EEPROM (virtualEEPROM for Uno R4)
+  // No explicit begin() needed for Uno R4
+  unsigned long storedTimestamp = 0;
+  EEPROM.get(EEPROM_TIMESTAMP_ADDR, storedTimestamp);
+  Serial.print("Stored timestamp: ");
+  Serial.println(storedTimestamp);
 
   // Initialize FSM state
   fsmState.currentState = CALIBRATE_LOCK;
@@ -361,32 +465,94 @@ void loop() {
   // Handle WiFi clients
   WiFiClient client = server.available();
   Command cmd = NONE;
+
   if (client) {
     Serial.println("new client");
     String currentLine = "";
+    String nonce = "";
+    String signature = "";
+    bool isPostLock = false;
+    bool isPostUnlock = false;
+
     while (client.connected()) {
       if (client.available()) {
         char c = client.read();
         Serial.write(c);
+
         if (c == '\n') {
           if (currentLine.length() == 0) {
-            // HTTP headers
-            // TODO(gz): just return HTTP 200 if cmd != NONE
-            client.println("HTTP/1.1 200 OK");
-            client.println("Content-type:text/html");
-            client.println("Access-Control-Allow-Origin: *");
-            client.println();
-            client.println("<p>Doorlock server</p>");
+            // End of headers - now validate authentication
+
+            // Determine which command was requested
+            if (isPostLock) {
+              // Verify authentication
+              if (verifyAuthentication(nonce, signature)) {
+                cmd = LOCK_CMD;
+                Serial.println("Authenticated LOCK command");
+
+                client.println("HTTP/1.1 200 OK");
+                client.println("Content-type:text/html");
+                client.println("Access-Control-Allow-Origin: *");
+                client.println();
+                client.println("<p>Lock command authenticated</p>");
+              } else {
+                Serial.println("LOCK authentication failed");
+
+                client.println("HTTP/1.1 401 Unauthorized");
+                client.println("Content-type:text/html");
+                client.println("Access-Control-Allow-Origin: *");
+                client.println();
+                client.println("<p>Authentication failed</p>");
+              }
+            } else if (isPostUnlock) {
+              // Verify authentication
+              if (verifyAuthentication(nonce, signature)) {
+                cmd = UNLOCK_CMD;
+                Serial.println("Authenticated UNLOCK command");
+
+                client.println("HTTP/1.1 200 OK");
+                client.println("Content-type:text/html");
+                client.println("Access-Control-Allow-Origin: *");
+                client.println();
+                client.println("<p>Unlock command authenticated</p>");
+              } else {
+                Serial.println("UNLOCK authentication failed");
+
+                client.println("HTTP/1.1 401 Unauthorized");
+                client.println("Content-type:text/html");
+                client.println("Access-Control-Allow-Origin: *");
+                client.println();
+                client.println("<p>Authentication failed</p>");
+              }
+            } else {
+              // No command or GET request
+              client.println("HTTP/1.1 200 OK");
+              client.println("Content-type:text/html");
+              client.println("Access-Control-Allow-Origin: *");
+              client.println();
+              client.println("<p>Doorlock server</p>");
+            }
+
             client.println();
             break;
           } else {
-            // Check for commands
+            // Parse headers
             if (currentLine.startsWith("POST /lock")) {
-              cmd = LOCK_CMD;
-              Serial.println("Received LOCK command");
+              isPostLock = true;
+              Serial.println("Received LOCK request");
             } else if (currentLine.startsWith("POST /unlock")) {
-              cmd = UNLOCK_CMD;
-              Serial.println("Received UNLOCK command");
+              isPostUnlock = true;
+              Serial.println("Received UNLOCK request");
+            } else if (currentLine.startsWith("X-Nonce: ")) {
+              nonce = currentLine.substring(9);
+              nonce.trim();
+              Serial.print("Nonce: ");
+              Serial.println(nonce);
+            } else if (currentLine.startsWith("X-Signature: ")) {
+              signature = currentLine.substring(13);
+              signature.trim();
+              Serial.print("Signature: ");
+              Serial.println(signature);
             }
 
             currentLine = "";
@@ -396,6 +562,7 @@ void loop() {
         }
       }
     }
+
     client.stop();
     Serial.println("client disconnected");
   }
