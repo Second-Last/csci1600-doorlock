@@ -442,7 +442,8 @@ Request getTopRequest(WiFiClient& client)
         } else {
           // Parse headers
           if (currentLine.startsWith("OPTIONS /lock") ||
-              currentLine.startsWith("OPTIONS /unlock")) {
+              currentLine.startsWith("OPTIONS /unlock") ||
+              currentLine.startsWith("OPTIONS /status")) {
             isOptions = true;
             // Serial.println("Received OPTIONS request");
           } else if (currentLine.startsWith("GET /status")) {
@@ -514,7 +515,7 @@ void respondRequest(WiFiClient& client, Request req, State st)
   assert(client);
 
   if (req == OPTIONS) {
-    respondHTTP(client, 204, "No Content", "", "Access-Control-Allow-Headers: Content-Type, X-Nonce, X-Signature\nAccess-Control-Allow-Methods: POST, OPTIONS");
+    respondHTTP(client, 204, "No Content", "", "Access-Control-Allow-Headers: Content-Type, X-Nonce, X-Signature\nAccess-Control-Allow-Methods: GET, POST, OPTIONS");
   } else if (req == LOCK_REQ && (st == LOCK || st == BUSY_MOVE)) {
     respondHTTP(client, 200, "OK", "", "");
   } else if (req == UNLOCK_REQ && (st == UNLOCK || st == BUSY_MOVE)) {
