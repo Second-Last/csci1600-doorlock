@@ -60,6 +60,11 @@ struct MyServo {
     With this information, we can interpolate feedback values for intermediate positions
   */
   void calibrate(int minPos, int maxPos) {
+	Serial.print("Calibrating with minPos=");
+	Serial.print(minPos);
+	Serial.print(", maxPos=");
+	Serial.println(maxPos);
+
     bool prevAttached = attached;
 
     // Move to the minimum position and record the feedback value

@@ -64,15 +64,6 @@ const int ANGLE_TOLERANCE = 5;
 // Global FSM state (must be defined before test headers are included)
 FSMState fsmState;
 
-// Forward declarations (defined later in the file)
-void fsmTransition(int deg, unsigned long millis, Command button, Command cmd);
-void computeHMAC(const String& message, const char* key, unsigned char* output);
-String stateToString(State st);
-int getCurrentDeg();
-bool isAtLock(int deg);
-bool isAtUnlock(int deg);
-bool processServerRequest();
-
 ArduinoLEDMatrix matrix;
 
 // Control and feedback pins
@@ -294,175 +285,6 @@ bool verifyAuthentication(const String& nonce, const String& signature) {
 
   Serial.println("Auth success");
   return true;
-}
-
-// Include test files if testing is enabled
-#ifdef UNIT_TEST
-#include "doorlock_unit_tests.h"
-#endif
-
-#ifdef INTEGRATION_TEST
-#include "doorlock_integration_tests.h"
-#endif
-
-void setup() {
-  Serial.begin(9600);
-  while (!Serial);
-
-#ifdef INTEGRATION_TEST
-  // Run integration tests with HTTP server enabled
-  Serial.println("Running integration tests...");
-
-  // Initialize EEPROM for authentication
-  EEPROM.put(EEPROM_TIMESTAMP_ADDR, 0);
-
-  // WiFi setup for HTTP testing
-  Serial.println("Setting up WiFi for integration tests...");
-  Serial.println(SECRET_SSID);
-#ifdef SECRET_PASS
-  Serial.println(SECRET_PASS);
-#endif
-
-  // check for the WiFi module:
-  if (WiFi.status() == WL_NO_MODULE) {
-    Serial.println("Communication with WiFi module failed!");
-    while (true);
-  }
-
-  String fv = WiFi.firmwareVersion();
-  if (fv < WIFI_FIRMWARE_LATEST_VERSION) {
-    Serial.println("Please upgrade the firmware");
-  }
-
-  // attempt to connect to WiFi network:
-  while (status != WL_CONNECTED) {
-    Serial.print("Attempting to connect to Network named: ");
-    Serial.println(ssid);
-#ifdef SECRET_PASS
-    status = WiFi.begin(ssid, pass);
-#else
-    status = WiFi.begin(ssid);
-#endif
-    delay(2000);
-  }
-  server.begin();
-  printWifiStatus();
-
-  // Hardware setup
-  myservo.calibrate(UNLOCK_ANGLE, LOCK_ANGLE);
-  Serial.print("minFeedback: ");
-  Serial.println(myservo.minFeedback);
-  Serial.print("maxFeedback: ");
-  Serial.println(myservo.maxFeedback);
-  delay(1000);
-
-  // Initialize FSM state
-  fsmState.currentState = UNLOCK;
-  fsmState.lockDeg = LOCK_ANGLE;
-  fsmState.unlockDeg = UNLOCK_ANGLE;
-  fsmState.startTime = 0;
-  fsmState.curCmd = NONE;
-
-  Serial.println("Integration test setup complete.");
-  Serial.println("Server is ready to accept requests.");
-  delay(1000);  // Give server a moment to be ready
-
-  // Run integration tests (fetch() will call processServerRequest() to handle requests)
-  runIntegrationTests();
-
-#elif defined(UNIT_TEST)
-  // Run unit tests
-  Serial.println("Running unit tests...");
-  runUnitTests();
-
-#else
-  // The actual remote door lock!
-  // EEPROM.put(EEPROM_TIMESTAMP_ADDR, 0);
-
-  // Initialize Arduino LED Matrix FIRST to test it
-  matrix.begin();
-  Serial.println("Testing LED Matrix - displaying test text");
-  displayText("OK");
-  delay(2000);  // Show test pattern for 2 seconds
-  Serial.println("LED Matrix test complete");
-
-  // WiFi setup
-  Serial.println(SECRET_SSID);
-#ifdef SECRET_PASS
-  Serial.println(SECRET_PASS);
-#endif
-
-  // check for the WiFi module:
-  if (WiFi.status() == WL_NO_MODULE) {
-    Serial.println("Communication with WiFi module failed!");
-    while (true);
-  }
-
-  String fv = WiFi.firmwareVersion();
-  if (fv < WIFI_FIRMWARE_LATEST_VERSION) {
-    Serial.println("Please upgrade the firmware");
-  }
-
-  // attempt to connect to WiFi network:
-  while (status != WL_CONNECTED) {
-    Serial.print("Attempting to connect to Network named: ");
-    Serial.println(ssid);
-#ifdef SECRET_PASS
-    status = WiFi.begin(ssid, pass);
-#else
-    status = WiFi.begin(ssid);
-#endif
-    delay(2000);
-  }
-  server.begin();
-  printWifiStatus();
-
-  myservo.init();
-  myservo.calibrate(UNLOCK_ANGLE, LOCK_ANGLE);
-  Serial.print("minFeedback: ");
-  Serial.println(myservo.minFeedback);
-  Serial.print("maxFeedback: ");
-  Serial.println(myservo.maxFeedback);
-  Serial.print("minPoFeedback: ");
-  Serial.println(myservo.minPoFeedback);
-  Serial.print("maxPoFeedback: ");
-  Serial.println(myservo.maxPoFeedback);
-  delay(1000);
-
-  // Initialize EEPROM (virtualEEPROM for Uno R4)
-  // No explicit begin() needed for Uno R4
-  unsigned long storedTimestamp = 0;
-  EEPROM.get(EEPROM_TIMESTAMP_ADDR, storedTimestamp);
-  Serial.print("Stored timestamp: ");
-  Serial.println(storedTimestamp);
-
-  // Initialize FSM state
-  fsmState.currentState = CALIBRATE_LOCK;
-  fsmState.lockDeg = LOCK_ANGLE;
-  fsmState.unlockDeg = UNLOCK_ANGLE;
-  fsmState.startTime = 0;
-  fsmState.curCmd = NONE;
-
-  Serial.println("FSM initialized in CALIBRATE_LOCK state");
-  Serial.println("Hardcoded angles - Lock: 110, Unlock: 40");
-
-  // Display initial state
-  updateMatrixDisplay();
-
-  // Run through calibration states. Manually rotate the motor to simulate user
-  // calibration.
-  // TODO: remove once we implement power cutoff for the servo to release
-  // control of the motor
-  fsmTransition(LOCK_ANGLE, millis(), NONE, NONE);
-  fsmTransition(UNLOCK_ANGLE, millis(), NONE, NONE);
-  myservo.attachAndWrite(UNLOCK_ANGLE);
-  delay(2000);
-  myservo.detach();
-
-  Serial.println("FSM ready - now in UNLOCK state");
-
-  WDT.begin(wdtInterval);
-#endif
 }
 
 // Check if at unlock position (open-ended tolerance: only check upper bound)
@@ -712,6 +534,177 @@ void respondRequest(WiFiClient& client, Request req, State st)
 
   client.stop();
   Serial.println("client disconnected");
+}
+
+
+// Include test files if testing is enabled
+#ifdef UNIT_TEST
+#include "doorlock_unit_tests.h"
+#endif
+
+#ifdef INTEGRATION_TEST
+#include "doorlock_integration_tests.h"
+#endif
+
+void setup() {
+  Serial.begin(9600);
+  while (!Serial);
+
+#ifdef INTEGRATION_TEST
+  // Run integration tests with HTTP server enabled
+  Serial.println("Running integration tests...");
+
+  // Initialize EEPROM for authentication
+  EEPROM.put(EEPROM_TIMESTAMP_ADDR, 0);
+
+  // WiFi setup for HTTP testing
+  Serial.println("Setting up WiFi for integration tests...");
+  Serial.println(SECRET_SSID);
+#ifdef SECRET_PASS
+  Serial.println(SECRET_PASS);
+#endif
+
+  // check for the WiFi module:
+  if (WiFi.status() == WL_NO_MODULE) {
+    Serial.println("Communication with WiFi module failed!");
+    while (true);
+  }
+
+  String fv = WiFi.firmwareVersion();
+  if (fv < WIFI_FIRMWARE_LATEST_VERSION) {
+    Serial.println("Please upgrade the firmware");
+  }
+
+  // attempt to connect to WiFi network:
+  while (status != WL_CONNECTED) {
+    Serial.print("Attempting to connect to Network named: ");
+    Serial.println(ssid);
+#ifdef SECRET_PASS
+    status = WiFi.begin(ssid, pass);
+#else
+    status = WiFi.begin(ssid);
+#endif
+    delay(2000);
+  }
+  server.begin();
+  printWifiStatus();
+
+  // Hardware setup
+  myservo.init();
+  myservo.calibrate(UNLOCK_ANGLE, LOCK_ANGLE);
+  Serial.print("minFeedback: ");
+  Serial.println(myservo.minFeedback);
+  Serial.print("maxFeedback: ");
+  Serial.println(myservo.maxFeedback);
+  delay(1000);
+
+  // Initialize FSM state
+  fsmState.currentState = UNLOCK;
+  fsmState.lockDeg = LOCK_ANGLE;
+  fsmState.unlockDeg = UNLOCK_ANGLE;
+  fsmState.startTime = 0;
+  fsmState.curCmd = NONE;
+
+  Serial.println("Integration test setup complete.");
+  Serial.println("Server is ready to accept requests.");
+  delay(1000);  // Give server a moment to be ready
+
+  // Run integration tests (fetch() will call processServerRequest() to handle requests)
+  runIntegrationTests();
+
+#elif defined(UNIT_TEST)
+  // Run unit tests
+  Serial.println("Running unit tests...");
+  runUnitTests();
+
+#else
+  // The actual remote door lock!
+  // EEPROM.put(EEPROM_TIMESTAMP_ADDR, 0);
+
+  // Initialize Arduino LED Matrix FIRST to test it
+  matrix.begin();
+  Serial.println("Testing LED Matrix - displaying test text");
+  displayText("OK");
+  delay(2000);  // Show test pattern for 2 seconds
+  Serial.println("LED Matrix test complete");
+
+  // WiFi setup
+  Serial.println(SECRET_SSID);
+#ifdef SECRET_PASS
+  Serial.println(SECRET_PASS);
+#endif
+
+  // check for the WiFi module:
+  if (WiFi.status() == WL_NO_MODULE) {
+    Serial.println("Communication with WiFi module failed!");
+    while (true);
+  }
+
+  String fv = WiFi.firmwareVersion();
+  if (fv < WIFI_FIRMWARE_LATEST_VERSION) {
+    Serial.println("Please upgrade the firmware");
+  }
+
+  // attempt to connect to WiFi network:
+  while (status != WL_CONNECTED) {
+    Serial.print("Attempting to connect to Network named: ");
+    Serial.println(ssid);
+#ifdef SECRET_PASS
+    status = WiFi.begin(ssid, pass);
+#else
+    status = WiFi.begin(ssid);
+#endif
+    delay(2000);
+  }
+  server.begin();
+  printWifiStatus();
+
+  myservo.init();
+  myservo.calibrate(UNLOCK_ANGLE, LOCK_ANGLE);
+  Serial.print("minFeedback: ");
+  Serial.println(myservo.minFeedback);
+  Serial.print("maxFeedback: ");
+  Serial.println(myservo.maxFeedback);
+  Serial.print("minPoFeedback: ");
+  Serial.println(myservo.minPoFeedback);
+  Serial.print("maxPoFeedback: ");
+  Serial.println(myservo.maxPoFeedback);
+  delay(1000);
+
+  // Initialize EEPROM (virtualEEPROM for Uno R4)
+  // No explicit begin() needed for Uno R4
+  unsigned long storedTimestamp = 0;
+  EEPROM.get(EEPROM_TIMESTAMP_ADDR, storedTimestamp);
+  Serial.print("Stored timestamp: ");
+  Serial.println(storedTimestamp);
+
+  // Initialize FSM state
+  fsmState.currentState = CALIBRATE_LOCK;
+  fsmState.lockDeg = LOCK_ANGLE;
+  fsmState.unlockDeg = UNLOCK_ANGLE;
+  fsmState.startTime = 0;
+  fsmState.curCmd = NONE;
+
+  Serial.println("FSM initialized in CALIBRATE_LOCK state");
+  Serial.println("Hardcoded angles - Lock: 110, Unlock: 40");
+
+  // Display initial state
+  updateMatrixDisplay();
+
+  // Run through calibration states. Manually rotate the motor to simulate user
+  // calibration.
+  // TODO: remove once we implement power cutoff for the servo to release
+  // control of the motor
+  fsmTransition(LOCK_ANGLE, millis(), NONE, NONE);
+  fsmTransition(UNLOCK_ANGLE, millis(), NONE, NONE);
+  myservo.attachAndWrite(UNLOCK_ANGLE);
+  delay(2000);
+  myservo.detach();
+
+  Serial.println("FSM ready - now in UNLOCK state");
+
+  WDT.begin(wdtInterval);
+#endif
 }
 
 void loop() {

@@ -31,6 +31,22 @@ String bytesToHex(unsigned char* bytes, int len) {
   return hex;
 }
 
+// Helper function that unifies the sequence to process a server request
+void processServerRequest() {
+  WiFiClient client = server.available();
+  Request req = getTopRequest(client);
+  Command cmd = requestToCommand(req);
+
+  // Get current servo position
+  int currentDeg = myservo.deg();
+
+  // Run FSM transition
+  fsmTransition(currentDeg, millis(), NONE, cmd);
+
+  // Respond to request, if any
+  respondRequest(client, req, fsmState.currentState);
+}
+
 // Generate HMAC-SHA256 signature for testing
 String generateHMACSignature(const String& nonce, const char* password) {
   unsigned char hmac[32];
@@ -275,12 +291,12 @@ bool testHTTPLockToUnlock() {
   fsmState.unlockDeg = UNLOCK_ANGLE;
   fsmState.startTime = 0;
   fsmState.curCmd = NONE;
-  myservo.write(LOCK_ANGLE);
+  myservo.attachAndWrite(LOCK_ANGLE);
   delay(2000); // Wait for motor to reach lock position
   
   // Ensure FSM state matches physical position by running a transition
-  // This ensures getCurrentDeg() and FSM state are in sync
-  int currentDeg = getCurrentDeg();
+  // This ensures myservo.deg() and FSM state are in sync
+  int currentDeg = myservo.deg();
   fsmTransition(currentDeg, millis(), NONE, NONE);
   
   Serial.print("Starting from LOCK state, current position: ");
@@ -356,12 +372,12 @@ bool testHTTPUnlockToLock() {
   fsmState.unlockDeg = UNLOCK_ANGLE;
   fsmState.startTime = 0;
   fsmState.curCmd = NONE;
-  myservo.write(UNLOCK_ANGLE);
+  myservo.attachAndWrite(UNLOCK_ANGLE);
   delay(2000); // Wait for motor to reach unlock position
   
   // Ensure FSM state matches physical position by running a transition
-  // This ensures getCurrentDeg() and FSM state are in sync
-  int currentDeg = getCurrentDeg();
+  // This ensures myservo.deg() and FSM state are in sync
+  int currentDeg = myservo.deg();
   fsmTransition(currentDeg, millis(), NONE, NONE);
   
   Serial.print("Starting from UNLOCK state, current position: ");
@@ -380,7 +396,7 @@ bool testHTTPUnlockToLock() {
   Serial.println("Step 2: Sending POST /lock request...");
   
   // Check position before sending command
-  int degBefore = getCurrentDeg();
+  int degBefore = myservo.deg();
   Serial.print("Position before command: ");
   Serial.print(degBefore);
   Serial.print(", isAtUnlock: ");
@@ -395,7 +411,7 @@ bool testHTTPUnlockToLock() {
   Serial.print("FSM state after POST /lock: ");
   Serial.println(stateToString(fsmState.currentState));
   Serial.print("Position after command: ");
-  Serial.println(getCurrentDeg());
+  Serial.println(myservo.deg());
   
   if (!result.passed || result.statusCode != 200) {
     Serial.print("✗ POST /lock failed: ");
@@ -559,7 +575,7 @@ bool testMotorWithInterference() {
   // Start from UNLOCK state
   fsmState.currentState = UNLOCK;
   fsmState.curCmd = NONE;
-  myservo.write(UNLOCK_ANGLE);
+  myservo.attachAndWrite(UNLOCK_ANGLE);
   delay(2000);
   
   Serial.println("Test: Manual rotation detection");
@@ -569,7 +585,7 @@ bool testMotorWithInterference() {
   delay(3000);
   
   // Check if manual rotation was detected (should enter BUSY_WAIT from UNLOCK)
-  int currentDeg = getCurrentDeg();
+  int currentDeg = myservo.deg();
   fsmTransition(currentDeg, millis(), NONE, NONE);
   
   Serial.print("State after manual rotation: ");
@@ -586,7 +602,7 @@ bool testMotorWithInterference() {
     Serial.println("Step 3: Manually rotate to LOCK position...");
     delay(3000);
     
-    currentDeg = getCurrentDeg();
+    currentDeg = myservo.deg();
     fsmTransition(currentDeg, millis(), NONE, NONE);
     
     Serial.print("State after reaching LOCK: ");
@@ -631,10 +647,10 @@ bool testFSMPositionOutput() {
   
   // Test LOCK position
   Serial.println("Testing LOCK position...");
-  myservo.write(LOCK_ANGLE);
+  myservo.attachAndWrite(LOCK_ANGLE);
   delay(2000);
   
-  int lockDeg = getCurrentDeg();
+  int lockDeg = myservo.deg();
   bool isLockPos = isAtLock(lockDeg);
   
   Serial.print("Motor at LOCK angle (");
@@ -646,10 +662,10 @@ bool testFSMPositionOutput() {
   
   // Test UNLOCK position
   Serial.println("\nTesting UNLOCK position...");
-  myservo.write(UNLOCK_ANGLE);
+  myservo.attachAndWrite(UNLOCK_ANGLE);
   delay(2000);
   
-  int unlockDeg = getCurrentDeg();
+  int unlockDeg = myservo.deg();
   bool isUnlockPos = isAtUnlock(unlockDeg);
   
   Serial.print("Motor at UNLOCK angle (");
@@ -689,16 +705,16 @@ bool testFSMCommandResponse() {
   // Start from UNLOCK
   fsmState.currentState = UNLOCK;
   fsmState.curCmd = NONE;
-  myservo.write(UNLOCK_ANGLE);
+  myservo.attachAndWrite(UNLOCK_ANGLE);
   delay(2000);
   
   Serial.println("Sending LOCK command...");
   
-  int initialDeg = getCurrentDeg();
+  int initialDeg = myservo.deg();
   State initialState = fsmState.currentState;
   
   // Send command
-  int currentDeg = getCurrentDeg();
+  int currentDeg = myservo.deg();
   fsmTransition(currentDeg, millis(), NONE, LOCK_CMD);
   
   State afterCommandState = fsmState.currentState;
@@ -713,7 +729,7 @@ bool testFSMCommandResponse() {
   
   // Wait a bit and check if motor started moving
   delay(500);
-  int newDeg = getCurrentDeg();
+  int newDeg = myservo.deg();
   bool motorMoving = (abs(newDeg - initialDeg) > 2); // Position changed by more than 2 degrees
   
   Serial.print("Command acknowledged: ");
@@ -761,7 +777,7 @@ bool testWatchdogTimeout() {
   Serial.println(millis() - fsmState.startTime);
   
   // Run FSM transition - should detect timeout
-  int currentDeg = getCurrentDeg();
+  int currentDeg = myservo.deg();
   fsmTransition(currentDeg, millis(), NONE, NONE);
   
   bool reachedBadState = (fsmState.currentState == BAD);
