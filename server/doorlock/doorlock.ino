@@ -525,6 +525,7 @@ void loop() {
     String signature = "";
     bool isPostLock = false;
     bool isPostUnlock = false;
+    bool isPostConnect = false;
     bool isOptions = false;
 
     while (client.connected()) {
@@ -544,6 +545,21 @@ void loop() {
               client.println("Access-Control-Allow-Origin: *");
               client.println("Access-Control-Allow-Headers: Content-Type, X-Nonce, X-Signature");
               client.println("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+            } else if (isPostConnect) {
+              if (verifyAuthentication(nonce, signature)) {
+                client.println("HTTP/1.1 200 OK");
+                client.println("Content-type:text/html");
+                client.println("Access-Control-Allow-Origin: *");
+                client.println();
+                client.println("<p>Doorlock server</p>");
+              }
+              else {
+                client.println("HTTP/1.1 401 Unauthorized");
+                client.println("Content-type:text/html");
+                client.println("Access-Control-Allow-Origin: *");
+                client.println();
+                client.println("<p>Authentication failed</p>");
+              }
             } else if (isPostLock) {
               // Verify authentication
               if (verifyAuthentication(nonce, signature)) {
@@ -591,6 +607,9 @@ void loop() {
             } else if (currentLine.startsWith("GET /status")) {
               isStatus = true;
               Serial.println("Received GET /status");
+            } else if (currentLine.startsWith("POST /connect")) {
+              isPostConnect = true;
+              Serial.println("Received POST /connect");
             } else if (currentLine.startsWith("POST /lock")) {
               isPostLock = true;
               Serial.println("Received LOCK request");

@@ -1,20 +1,22 @@
 import { Text, View, KeyboardAvoidingView, Image, TouchableOpacity } from "react-native";
 import { StyleSheet } from 'react-native';
 import { useLocalSearchParams } from "expo-router";
-import { pushMotorCommand } from "./api/api";
+import { pushMotorCommand, getLockStatus } from "./api/api";
 import { MotorCommand } from "./api/models";
 import { useRouter } from 'expo-router';
 import { useFonts } from "expo-font";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function PushCommand() {
 
     const [isLocked, setIsLocked] = useState<boolean | null>(null);
+    const [isMoving, setIsMoving] = useState<boolean>(false);
+    const [updateStatusInterval, setUpdateStatusInterval] = useState<number>();
     
     const router = useRouter();
-    const params = useLocalSearchParams();
-    const { serverAddress, serverPass } = params;
+    // const params = useLocalSearchParams();
+    // const { serverAddress, serverPass } = params;
     
     const [fontsLoaded, fontError] = useFonts({
         "SpaceGrotesk-Regular": require("../assets/fonts/SpaceGrotesk-Regular.ttf"),
@@ -22,7 +24,14 @@ export default function PushCommand() {
     });
     
 
-    const handlePushCommand = async (motorCommand: MotorCommand) => {        
+    const handlePushCommand = async (motorCommand: MotorCommand) => {  
+        const serverAddress = await AsyncStorage.getItem('serverAddress');
+        const serverPass = await AsyncStorage.getItem('serverPass');
+
+        if(!serverAddress || !serverPass){
+            return;
+        }
+        
         const response = await pushMotorCommand({
             serverAddress: serverAddress,
             serverPass: serverPass,
@@ -30,29 +39,53 @@ export default function PushCommand() {
         })
 
         if(response.status === 200){
-            if(motorCommand === MotorCommand.Lock){
-                setIsLocked(true);
-            }
-            else{
-                setIsLocked(false);
-            }
+            console.log("Command received");
         }
-        if(motorCommand === MotorCommand.Lock){
+    }
+
+    const updateLockStatus = async () => {
+        const serverAddress = await AsyncStorage.getItem('serverAddress');
+
+        if(!serverAddress){
+            return;
+        }
+
+        const response = await getLockStatus({
+            serverAddress: serverAddress
+        });
+
+        if (response.status === 200){
+            if ((await response.text()) == MotorCommand.Lock){
                 setIsLocked(true);
             }
             else{
                 setIsLocked(false);
             }
+            setIsMoving(false);
+        }
+        else{
+            setIsMoving(true);
+        }
     }
+
+    useEffect(() => {
+        setUpdateStatusInterval(
+            setInterval(updateLockStatus, 1000)
+        );
+
+        return () => {
+            clearInterval(updateStatusInterval)
+        }
+    }, [])
 
     return (
         <View
-        style={{
-            flex: 1,
-            justifyContent: "center",
-            alignItems: "center"
-        }}
-        >
+            style={{
+                flex: 1,
+                justifyContent: "center",
+                alignItems: "center"
+            }}
+            >
             <Text style={styles.pageTitle}>
                 Configure Remote Lock
             </Text>
@@ -75,15 +108,24 @@ export default function PushCommand() {
                 }}>
                     Status:
                 </Text>
-                <Text style={[{
-                    fontFamily: 'SpaceGrotesk-Regular',
-                    fontSize: 22
-                }, 
-                    isLocked && { color: '#C00404'}, 
-                    !isLocked && { color: 'green'}
-                ]}>
-                    {isLocked ? " Locked" : " Unlocked"} 
-                </Text>
+                {isMoving 
+                    ?<Text style={{
+                        fontFamily: 'SpaceGrotesk-Regular',
+                        fontSize: 22,
+                        color: '#ffc72c'
+                    }}>
+                        Moving...
+                    </Text>
+                    : <Text style={[{
+                        fontFamily: 'SpaceGrotesk-Regular',
+                        fontSize: 22
+                    }, 
+                        isLocked && { color: '#C00404'}, 
+                        !isLocked && { color: 'green'}
+                    ]}>
+                        {isLocked ? " Locked" : " Unlocked"} 
+                    </Text>
+                }
             </View>
             
             <View

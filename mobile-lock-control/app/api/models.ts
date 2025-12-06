@@ -1,9 +1,13 @@
+export interface GetLockStatusRequest{
+    serverAddress: string;
+}
+
 export interface PingLockServerRequest{
     serverAddress: string;
     serverPass: string;
 }
 
-export interface PushCommand{
+export interface PushCommandRequest{
     serverAddress: string;
     serverPass: string;
     motorCommand: MotorCommand;

@@ -1,20 +1,25 @@
-import { MotorCommand, PingLockServerRequest, PushCommand } from "./models"
+import { GetLockStatusRequest, MotorCommand, PingLockServerRequest, PushCommandRequest } from "./models"
 import CryptoJS from 'crypto-js';
 
+export async function getLockStatus(params: GetLockStatusRequest){
+    return await fetch(`${params.serverAddress}/status`, {
+        method: "GET"
+    });
+}
+
 export async function pingLockServer(params: PingLockServerRequest){
-    return await fetch(`${params.serverAddress}/api/ping`, {
+    const nonce = Date.now().toString();
+
+    return await fetch(`${params.serverAddress}/connect`, {
         method: 'POST',
-        body: JSON.stringify({
-            serverAddress: params.serverAddress,
-            serverPass: params.serverPass
-        }),
         headers: {
-            'Content-type': 'application/json; charset=UTF-8'
+            'X-Nonce' : nonce,
+            'X-Signature' : CryptoJS.HmacSHA256(nonce, params.serverPass).toString()
         }
     })       
 }
 
-export async function pushMotorCommand(params: PushCommand){
+export async function pushMotorCommand(params: PushCommandRequest){
     const path = (params.motorCommand === MotorCommand.Lock) ? "lock" : "unlock";
     const nonce = Date.now().toString();
     

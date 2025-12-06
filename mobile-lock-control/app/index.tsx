@@ -22,28 +22,19 @@ export default function Index() {
       return;
     }
     
-    // const response = await pingLockServer({
-    //   serverAddress: serverAddress,
-    //   serverPass: serverPass  
-    // })
+    const response = await pingLockServer({
+      serverAddress: serverAddress,
+      serverPass: serverPass  
+    })
 
-    // if(response.status === 200){
-    //   router.push({
-    //     pathname: '/commands', 
-    //     params: {
-    //       serverAddress: serverAddress,
-    //       serverPass: serverPass
-    //     }
-    //   });
-    // }
+    if(response.status === 200){
+      await AsyncStorage.setItem('serverAddress', serverAddress);
+      await AsyncStorage.setItem('serverPass', serverPass);
 
-    router.push({
-        pathname: '/commands', 
-        params: {
-          serverAddress: serverAddress,
-          serverPass: serverPass
-        }
+      router.push({
+        pathname: '/commands'
       });
+    }
   }
 
   return (
