@@ -517,9 +517,9 @@ void respondRequest(WiFiClient& client, Request req, State st)
   if (req == OPTIONS) {
     respondHTTP(client, 204, "No Content", "", "Access-Control-Allow-Headers: Content-Type, X-Nonce, X-Signature\nAccess-Control-Allow-Methods: GET, POST, OPTIONS");
   } else if (req == LOCK_REQ && (st == LOCK || st == BUSY_MOVE)) {
-    respondHTTP(client, 200, "OK", "", "");
+    respondHTTP(client, 200, "OK", stateToString(st), "");
   } else if (req == UNLOCK_REQ && (st == UNLOCK || st == BUSY_MOVE)) {
-    respondHTTP(client, 200, "OK", "", "");
+    respondHTTP(client, 200, "OK", stateToString(st), "");
   } else if (req == UNRECOGNIZED) {
     respondHTTP(client, 403, "Forbidden", "", "");
   } else if (req == STATUS) {
@@ -527,7 +527,7 @@ void respondRequest(WiFiClient& client, Request req, State st)
   } else {
     // This is the case where we attempt to lock/unlock but for whatever reason
     // this request cannot be processed (e.g. FSM is in BUSY_WAIT)
-    respondHTTP(client, 503, "Service Unavailable", "", "");
+    respondHTTP(client, 503, "Service Unavailable", stateToString(st), "");
   }
 
   client.stop();
