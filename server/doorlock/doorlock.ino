@@ -241,13 +241,11 @@ bool constantTimeCompare(const unsigned char* a, const unsigned char* b, size_t 
 // Verify HMAC authentication
 // Returns true if authentication succeeds
 bool verifyAuthentication(const String& nonce, const String& signature) {
-#ifdef INTEGRATION_TEST
-  return true;
-#else
   // Parse nonce as unsigned long
   unsigned long requestTimestamp = nonce.toInt();
   if (requestTimestamp == 0 && nonce != "0") {
-    Serial.println("Auth failed: invalid nonce format");
+    Serial.print("Auth failed: invalid nonce format, nonce=");
+    Serial.println(nonce);
     return false;
   }
 
@@ -286,7 +284,6 @@ bool verifyAuthentication(const String& nonce, const String& signature) {
 
   Serial.println("Auth success");
   return true;
-#endif
 }
 
 // Check if at unlock position (open-ended tolerance: only check upper bound)
