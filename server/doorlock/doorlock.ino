@@ -8,14 +8,61 @@
 
 #include "arduino_secrets.h"
 
+// FSM State Enum (must be defined before test headers are included)
+enum State { CALIBRATE_LOCK, CALIBRATE_UNLOCK, UNLOCK, LOCK, BUSY_WAIT, BUSY_MOVE, BAD };
+
+// Command Enum
+enum Command { NONE, LOCK_CMD, UNLOCK_CMD };
+
+// FSM State struct
+struct FSMState {
+  State currentState;
+  int lockDeg;
+  int unlockDeg;
+  unsigned long startTime;
+};
+
+// Timeout constant (milliseconds)
+const unsigned long TOL = 5000;  // 5 second timeout for moves
+
+// Hardcoded lock positions
+const int LOCK_ANGLE = 120;
+const int UNLOCK_ANGLE = 50;
+
+// Angle tolerance for position checking (degrees)
+const int ANGLE_TOLERANCE = 3;
+
+// Global FSM state (must be defined before test headers are included)
+FSMState fsmState;
+
+// Forward declarations (defined later in the file)
+void fsmTransition(int deg, unsigned long millis, Command button, Command cmd);
+void computeHMAC(const String& message, const char* key, unsigned char* output);
+String stateToString(State st);
+int getCurrentDeg();
+bool isAtLock(int deg);
+bool isAtUnlock(int deg);
+bool processServerRequest();
+extern Servo myservo;  // Forward declaration - defined after test headers
+
+
 // Uncomment exactly one below to run integration or unit tests.
-// #define INTEGRATION_TEST
+#define INTEGRATION_TEST
 // #define UNIT_TEST
 
 #if defined(INTEGRATION_TEST) && defined(UNIT_TEST)
   #error "INTEGRATION_TEST and UNIT_TEST cannot be both defined!"
 #elif defined(INTEGRATION_TEST) || defined(UNIT_TEST)
   #define TESTING
+#endif
+
+// Include test files if testing is enabled
+#ifdef UNIT_TEST
+  #include "doorlock_unit_tests.h"
+#endif
+
+#ifdef INTEGRATION_TEST
+  #include "doorlock_integration_tests.h"
 #endif
 
 Servo myservo;
@@ -31,36 +78,10 @@ int maxDegrees;
 int minFeedback;
 int maxFeedback;
 int tolerance = 5;  // max feedback measurement error
-
-// FSM State Enum
-enum State { CALIBRATE_LOCK, CALIBRATE_UNLOCK, UNLOCK, LOCK, BUSY_WAIT, BUSY_MOVE, BAD };
-
-// Command Enum
-enum Command { NONE, LOCK_CMD, UNLOCK_CMD };
-
-// FSM State struct
-struct FSMState {
-  State currentState;
-  int lockDeg;
-  int unlockDeg;
-  unsigned long startTime;
-};
-
-// Global FSM state
-FSMState fsmState;
 State lastDisplayedState = BAD;  // Track last displayed state to avoid unnecessary updates
 
-// Timeout constant (milliseconds)
-const unsigned long TOL = 5000;  // 5 second timeout for moves
 
 const long wdtInterval = 2684;
-
-// Hardcoded lock positions
-const int LOCK_ANGLE = 120;
-const int UNLOCK_ANGLE = 50;
-
-// Angle tolerance for position checking (degrees)
-const int ANGLE_TOLERANCE = 3;
 
 // WiFi setup
 char ssid[] = SECRET_SSID;
@@ -295,10 +316,70 @@ void setup() {
   while (!Serial);
 
 #ifdef INTEGRATION_TEST
-  // Run integration test
+  // Run integration tests with HTTP server enabled
+  Serial.println("Running integration tests...");
+  
+  // Initialize EEPROM for authentication
+  EEPROM.put(EEPROM_TIMESTAMP_ADDR, 0);
+  
+  // WiFi setup for HTTP testing
+  Serial.println("Setting up WiFi for integration tests...");
+  Serial.println(SECRET_SSID);
+#ifdef SECRET_PASS
+  Serial.println(SECRET_PASS);
+#endif
 
-#elifdef UNIT_TEST
+  // check for the WiFi module:
+  if (WiFi.status() == WL_NO_MODULE) {
+    Serial.println("Communication with WiFi module failed!");
+    while (true);
+  }
+
+  String fv = WiFi.firmwareVersion();
+  if (fv < WIFI_FIRMWARE_LATEST_VERSION) {
+    Serial.println("Please upgrade the firmware");
+  }
+
+  // attempt to connect to WiFi network:
+  while (status != WL_CONNECTED) {
+    Serial.print("Attempting to connect to Network named: ");
+    Serial.println(ssid);
+#ifdef SECRET_PASS
+    status = WiFi.begin(ssid, pass);
+#else
+    status = WiFi.begin(ssid);
+#endif
+    delay(2000);
+  }
+  server.begin();
+  printWifiStatus();
+  
+  // Hardware setup
+  myservo.attach(servoPin);
+  calibrate(myservo, feedbackPin, UNLOCK_ANGLE, LOCK_ANGLE);
+  Serial.print("minFeedback: ");
+  Serial.println(minFeedback);
+  Serial.print("maxFeedback: ");
+  Serial.println(maxFeedback);
+  delay(1000);
+  
+  // Initialize FSM state
+  fsmState.currentState = UNLOCK;
+  fsmState.lockDeg = LOCK_ANGLE;
+  fsmState.unlockDeg = UNLOCK_ANGLE;
+  fsmState.startTime = 0;
+  
+  Serial.println("Integration test setup complete.");
+  Serial.println("Server is ready to accept requests.");
+  delay(1000); // Give server a moment to be ready
+  
+  // Run integration tests (fetch() will call processServerRequest() to handle requests)
+  runIntegrationTests();
+
+#elif defined(UNIT_TEST)
   // Run unit tests
+  Serial.println("Running unit tests...");
+  runUnitTests();
 
 #else
   // The actual remote door lock!
@@ -438,7 +519,9 @@ void fsmTransition(int deg, unsigned long millis, Command button, Command cmd) {
       if (isAtUnlock(deg) && cmd == LOCK_CMD) {
         nextState = BUSY_MOVE;
         fsmState.startTime = millis;
+#ifndef UNIT_TEST
         myservo.write(fsmState.lockDeg);
+#endif
         Serial.println("FSM: UNLOCK -> BUSY_MOVE (locking)");
       } else if (isAtLock(deg)) {
         nextState = LOCK;
@@ -454,7 +537,9 @@ void fsmTransition(int deg, unsigned long millis, Command button, Command cmd) {
       if (isAtLock(deg) && cmd == UNLOCK_CMD) {
         nextState = BUSY_MOVE;
         fsmState.startTime = millis;
+#ifndef UNIT_TEST
         myservo.write(fsmState.unlockDeg);
+#endif
         Serial.println("FSM: LOCK -> BUSY_MOVE (unlocking)");
       } else if (isAtUnlock(deg)) {
         nextState = UNLOCK;
@@ -510,129 +595,137 @@ void testAngle() {
   }
 }
 
-void loop() {
-#ifndef TESTING
-  // Handle WiFi clients
+// Process a single HTTP server request
+// Returns true if a request was processed, false if no client available
+bool processServerRequest() {
   WiFiClient client = server.available();
+  if (!client) {
+    return false;
+  }
+  
   Command cmd = NONE;
-
   bool hasRequest = false;
   bool isStatus = true;
-  if (client) {
-    Serial.println("new client");
-    String currentLine = "";
-    String nonce = "";
-    String signature = "";
-    bool isPostLock = false;
-    bool isPostUnlock = false;
-    bool isPostConnect = false;
-    bool isOptions = false;
+  bool isPostLock = false;
+  bool isPostUnlock = false;
+  bool isPostConnect = false;
+  bool isOptions = false;
+  
+  String currentLine = "";
+  String nonce = "";
+  String signature = "";
+  
+  Serial.println("new client");
+  
+  while (client.connected()) {
+    if (client.available()) {
+      char c = client.read();
+      Serial.write(c);
 
-    while (client.connected()) {
-      if (client.available()) {
-        char c = client.read();
-        Serial.write(c);
+      if (c == '\n') {
+        if (currentLine.length() == 0) {
+          // End of headers
+          hasRequest = true;
 
-        // TODO(gz): drop buffer processing
-        if (c == '\n') {
-          if (currentLine.length() == 0) {
-            // End of headers
-            hasRequest = true;
-
-            // Determine which command was requested
-            if (isOptions) {
-              client.println("HTTP/1.1 204 No Content");
-              client.println("Access-Control-Allow-Origin: *");
-              client.println("Access-Control-Allow-Headers: Content-Type, X-Nonce, X-Signature");
-              client.println("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-            } else if (isPostConnect) {
-              if (verifyAuthentication(nonce, signature)) {
-                client.println("HTTP/1.1 200 OK");
-                client.println("Content-type:text/html");
-                client.println("Access-Control-Allow-Origin: *");
-                client.println();
-                client.println("<p>Doorlock server</p>");
-              }
-              else {
-                client.println("HTTP/1.1 401 Unauthorized");
-                client.println("Content-type:text/html");
-                client.println("Access-Control-Allow-Origin: *");
-                client.println();
-                client.println("<p>Authentication failed</p>");
-              }
-            } else if (isPostLock) {
-              // Verify authentication
-              if (verifyAuthentication(nonce, signature)) {
-                cmd = LOCK_CMD;
-                Serial.println("Authenticated LOCK command");
-              } else {
-                Serial.println("LOCK authentication failed");
-                client.println("HTTP/1.1 401 Unauthorized");
-                client.println("Content-type:text/html");
-                client.println("Access-Control-Allow-Origin: *");
-                client.println();
-                client.println("<p>Authentication failed</p>");
-              }
-            } else if (isPostUnlock) {
-              // Verify authentication
-              if (verifyAuthentication(nonce, signature)) {
-                cmd = UNLOCK_CMD;
-                Serial.println("Authenticated UNLOCK command");
-              } else {
-                Serial.println("UNLOCK authentication failed");
-
-                client.println("HTTP/1.1 401 Unauthorized");
-                client.println("Content-type:text/html");
-                client.println("Access-Control-Allow-Origin: *");
-                client.println();
-                client.println("<p>Authentication failed</p>");
-              }
-            } else if (isStatus) {
-            } else {
-              // No command or GET request
+          // Determine which command was requested
+          if (isOptions) {
+            client.println("HTTP/1.1 204 No Content");
+            client.println("Access-Control-Allow-Origin: *");
+            client.println("Access-Control-Allow-Headers: Content-Type, X-Nonce, X-Signature");
+            client.println("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+            client.println();  // Empty line to end headers
+            client.stop();
+            Serial.println("OPTIONS response sent, client disconnected");
+            return true;
+          } else if (isPostConnect) {
+            if (verifyAuthentication(nonce, signature)) {
               client.println("HTTP/1.1 200 OK");
               client.println("Content-type:text/html");
               client.println("Access-Control-Allow-Origin: *");
               client.println();
               client.println("<p>Doorlock server</p>");
             }
-
-            break;
-          } else {
-            // Parse headers
-            if (currentLine.startsWith("OPTIONS /lock") ||
-                currentLine.startsWith("OPTIONS /unlock")) {
-              isOptions = true;
-              Serial.println("Received OPTIONS request");
-            } else if (currentLine.startsWith("GET /status")) {
-              isStatus = true;
-              Serial.println("Received GET /status");
-            } else if (currentLine.startsWith("POST /connect")) {
-              isPostConnect = true;
-              Serial.println("Received POST /connect");
-            } else if (currentLine.startsWith("POST /lock")) {
-              isPostLock = true;
-              Serial.println("Received LOCK request");
-            } else if (currentLine.startsWith("POST /unlock")) {
-              isPostUnlock = true;
-              Serial.println("Received UNLOCK request");
-            } else if (currentLine.startsWith("X-Nonce: ")) {
-              nonce = currentLine.substring(9);
-              nonce.trim();
-              Serial.print("Nonce: ");
-              Serial.println(nonce);
-            } else if (currentLine.startsWith("X-Signature: ")) {
-              signature = currentLine.substring(13);
-              signature.trim();
-              Serial.print("Signature: ");
-              Serial.println(signature);
+            else {
+              client.println("HTTP/1.1 401 Unauthorized");
+              client.println("Content-type:text/html");
+              client.println("Access-Control-Allow-Origin: *");
+              client.println();
+              client.println("<p>Authentication failed</p>");
             }
-
-            currentLine = "";
+            client.stop();
+            Serial.println("POST /connect response sent, client disconnected");
+            return true;
+          } else if (isPostLock) {
+            // Verify authentication
+            if (verifyAuthentication(nonce, signature)) {
+              cmd = LOCK_CMD;
+              Serial.println("Authenticated LOCK command");
+            } else {
+              Serial.println("LOCK authentication failed");
+              client.println("HTTP/1.1 401 Unauthorized");
+              client.println("Content-type:text/html");
+              client.println("Access-Control-Allow-Origin: *");
+              client.println();
+              client.println("<p>Authentication failed</p>");
+            }
+          } else if (isPostUnlock) {
+            // Verify authentication
+            if (verifyAuthentication(nonce, signature)) {
+              cmd = UNLOCK_CMD;
+              Serial.println("Authenticated UNLOCK command");
+            } else {
+              Serial.println("UNLOCK authentication failed");
+              client.println("HTTP/1.1 401 Unauthorized");
+              client.println("Content-type:text/html");
+              client.println("Access-Control-Allow-Origin: *");
+              client.println();
+              client.println("<p>Authentication failed</p>");
+            }
+          } else if (isStatus) {
+          } else {
+            // No command or GET request
+            client.println("HTTP/1.1 200 OK");
+            client.println("Content-type:text/html");
+            client.println("Access-Control-Allow-Origin: *");
+            client.println();
+            client.println("<p>Doorlock server</p>");
           }
-        } else if (c != '\r') {
-          currentLine += c;
+
+          break;
+        } else {
+          // Parse headers
+          if (currentLine.startsWith("OPTIONS /lock") ||
+              currentLine.startsWith("OPTIONS /unlock")) {
+            isOptions = true;
+            Serial.println("Received OPTIONS request");
+          } else if (currentLine.startsWith("GET /status")) {
+            isStatus = true;
+            Serial.println("Received GET /status");
+          } else if (currentLine.startsWith("POST /connect")) {
+            isPostConnect = true;
+            Serial.println("Received POST /connect");
+          } else if (currentLine.startsWith("POST /lock")) {
+            isPostLock = true;
+            Serial.println("Received LOCK request");
+          } else if (currentLine.startsWith("POST /unlock")) {
+            isPostUnlock = true;
+            Serial.println("Received UNLOCK request");
+          } else if (currentLine.startsWith("X-Nonce: ")) {
+            nonce = currentLine.substring(9);
+            nonce.trim();
+            Serial.print("Nonce: ");
+            Serial.println(nonce);
+          } else if (currentLine.startsWith("X-Signature: ")) {
+            signature = currentLine.substring(13);
+            signature.trim();
+            Serial.print("Signature: ");
+            Serial.println(signature);
+          }
+
+          currentLine = "";
         }
+      } else if (c != '\r') {
+        currentLine += c;
       }
     }
   }
@@ -647,8 +740,11 @@ void loop() {
   updateMatrixDisplay();
 
   // Return HTTP response if there is any
-  if (hasRequest) {
-    assert(client.connected());
+  // Note: OPTIONS and POST /connect responses are already sent and client disconnected above
+  if (hasRequest && !isOptions && !isPostConnect) {
+    if (!client.connected()) {
+      return true;  // Client already disconnected
+    }
 
     State currentState = fsmState.currentState;
     if (cmd != NONE) {
@@ -685,6 +781,15 @@ void loop() {
     client.stop();
     Serial.println("client disconnected");
   }
+
+  return hasRequest;
+}
+
+void loop() {
+#ifndef TESTING
+  // Handle WiFi clients (for production mode only)
+  // Note: Tests run in setup() and don't need loop()
+  processServerRequest();
 
   WDT.refresh();
 

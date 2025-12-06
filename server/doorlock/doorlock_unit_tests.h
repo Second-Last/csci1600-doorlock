@@ -1,53 +1,33 @@
 /*
- * THIS FILE WILL BE USED FOR UNIT TESTING THE DOORLOCK FSM
+ * UNIT TESTS FOR DOORLOCK FSM
  * 
  * Unit tests for FSM state transitions in the doorlock system.
  * Tests are designed to verify all state transitions work correctly
  * without requiring actual hardware.
  */
 
-// Enable testing mode
-#define TESTING
+#ifndef DOORLOCK_UNIT_TESTS_H
+#define DOORLOCK_UNIT_TESTS_H
 
-// Include necessary definitions from doorlock.ino
-// Note: In actual implementation, these should be in a shared header file
+// Note: State, Command, FSMState, and constants (TOL, LOCK_ANGLE, etc.)
+// must be defined in doorlock.ino before this header is included.
 
-// FSM State Enum
-enum State { CALIBRATE_LOCK, CALIBRATE_UNLOCK, UNLOCK, LOCK, BUSY_WAIT, BUSY_MOVE, BAD };
-
-// Command Enum
-enum Command { NONE, LOCK_CMD, UNLOCK_CMD };
-
-// FSM State struct
-struct FSMState {
-  State currentState;
-  int lockDeg;
-  int unlockDeg;
-  unsigned long startTime;
-};
-
-// Constants
-const unsigned long TOL = 5000;  // 5 second timeout for moves
-const int LOCK_ANGLE = 120;
-const int UNLOCK_ANGLE = 50;
-const int ANGLE_TOLERANCE = 3;
-
-// Global FSM state for testing
-FSMState testFsmState;
-
-/*
- * A struct to keep all state inputs in one place
- */
+// A struct to keep all state inputs in one place
 typedef struct {
   int currentDeg;        // Current servo position in degrees
   Command cmd;           // Command (LOCK_CMD, UNLOCK_CMD, or NONE)
   unsigned long clock;   // Current time in milliseconds
 } state_inputs;
 
+// Note: Unit tests use constants from doorlock.ino (TOL, LOCK_ANGLE, UNLOCK_ANGLE, ANGLE_TOLERANCE)
+
+// Note: Unit tests use the global fsmState from doorlock.ino
+// No need for separate test state since we save/restore in testTransition()
+
 /*
  * Helper function for printing states
  */
-char* s2str(State s) {
+const char* unitTestStateToString(State s) {
   switch(s) {
     case CALIBRATE_LOCK:
       return "(1) CALIBRATE_LOCK";
@@ -71,7 +51,7 @@ char* s2str(State s) {
 /*
  * Helper function for printing commands
  */
-char* c2str(Command c) {
+const char* unitTestCommandToString(Command c) {
   switch(c) {
     case NONE:
       return "NONE";
@@ -85,136 +65,68 @@ char* c2str(Command c) {
 }
 
 /*
- * Mock helper functions for testing
- * These replace hardware-dependent functions
- */
-
-// Check if at unlock position (open-ended tolerance: only check upper bound)
-bool isAtUnlock(int deg, int unlockDeg) {
-  return deg <= (unlockDeg + ANGLE_TOLERANCE);
-}
-
-// Check if at lock position (open-ended tolerance: only check lower bound)
-bool isAtLock(int deg, int lockDeg) {
-  return deg >= (lockDeg - ANGLE_TOLERANCE);
-}
-
-/*
- * Test version of fsmTransition that returns the new state
- * This is a copy of the logic from doorlock.ino but returns FSMState
- * In production, fsmTransition should be refactored to return FSMState
- */
-FSMState updateFSM(FSMState state, int deg, Command cmd, unsigned long clock) {
-  State nextState = state.currentState;
-
-  switch (state.currentState) {
-    case CALIBRATE_LOCK:
-      state.lockDeg = deg;
-      nextState = CALIBRATE_UNLOCK;
-      break;
-
-    case CALIBRATE_UNLOCK:
-      state.unlockDeg = deg;
-      nextState = UNLOCK;
-      break;
-
-    case UNLOCK:
-      if (isAtUnlock(deg, state.unlockDeg) && cmd == LOCK_CMD) {
-        nextState = BUSY_MOVE;
-        state.startTime = clock;
-      } else if (isAtLock(deg, state.lockDeg)) {
-        nextState = LOCK;
-      } else if (!isAtLock(deg, state.lockDeg) && !isAtUnlock(deg, state.unlockDeg)) {
-        nextState = BUSY_WAIT;
-      }
-      break;
-
-    case LOCK:
-      if (isAtLock(deg, state.lockDeg) && cmd == UNLOCK_CMD) {
-        nextState = BUSY_MOVE;
-        state.startTime = clock;
-      } else if (isAtUnlock(deg, state.unlockDeg)) {
-        nextState = UNLOCK;
-      } else if (!isAtLock(deg, state.lockDeg) && !isAtUnlock(deg, state.unlockDeg)) {
-        nextState = BUSY_WAIT;
-      }
-      break;
-
-    case BUSY_WAIT:
-      if (isAtUnlock(deg, state.unlockDeg)) {
-        nextState = UNLOCK;
-      } else if (isAtLock(deg, state.lockDeg)) {
-        nextState = LOCK;
-      }
-      // Otherwise stay in BUSY_WAIT
-      break;
-
-    case BUSY_MOVE:
-      if (clock - state.startTime > TOL) {
-        nextState = BAD;
-      } else if (isAtUnlock(deg, state.unlockDeg)) {
-        nextState = UNLOCK;
-      } else if (isAtLock(deg, state.lockDeg)) {
-        nextState = LOCK;
-      }
-      break;
-
-    case BAD:
-      // Stay in BAD state - requires manual reset
-      break;
-  }
-
-  state.currentState = nextState;
-  return state;
-}
-
-/*
  * Reset function to initialize test state
+ * Uses the global fsmState from doorlock.ino
  */
-void reset() {
-  testFsmState.currentState = UNLOCK;  // Start from UNLOCK for most tests
-  testFsmState.lockDeg = LOCK_ANGLE;
-  testFsmState.unlockDeg = UNLOCK_ANGLE;
-  testFsmState.startTime = 0;
+void resetTestState() {
+  fsmState.currentState = UNLOCK;  // Start from UNLOCK for most tests
+  fsmState.lockDeg = LOCK_ANGLE;
+  fsmState.unlockDeg = UNLOCK_ANGLE;
+  fsmState.startTime = 0;
 }
 
 /*
- * Given a start state, inputs, tests that updateFSM returns the correct end state
+ * Given a start state, inputs, tests that fsmTransition produces the correct end state
  * Returns true if test passed, false otherwise
+ * 
+ * Note: This function uses the global fsmState from doorlock.ino
  */
 bool testTransition(FSMState start,
                     FSMState end,
                     state_inputs inputs,
-                    bool verbos) {
-  FSMState res = updateFSM(start, inputs.currentDeg, inputs.cmd, inputs.clock);
+                    bool verbose) {
+  // Save and restore global fsmState to avoid side effects
+  FSMState savedState = fsmState;
+  
+  // Set up test state
+  fsmState = start;
+  
+  // Call the actual fsmTransition function (hardware calls are disabled in UNIT_TEST mode)
+  fsmTransition(inputs.currentDeg, inputs.clock, NONE, inputs.cmd);
+  
+  // Get result
+  FSMState res = fsmState;
+  
+  // Restore global state
+  fsmState = savedState;
   
   bool passedTest = (res.currentState == end.currentState &&
                      res.lockDeg == end.lockDeg &&
                      res.unlockDeg == end.unlockDeg &&
                      res.startTime == end.startTime);
 
-  if (!verbos) {
+  if (!verbose) {
     return passedTest;
   } else if (passedTest) {
     char sToPrint[200];
-    sprintf(sToPrint, "Test from %s to %s PASSED", s2str(start.currentState), s2str(end.currentState));
+    sprintf(sToPrint, "Test from %s to %s PASSED", unitTestStateToString(start.currentState), unitTestStateToString(end.currentState));
     Serial.println(sToPrint);
     return true;
   } else {
     char sToPrint[200];
-    sprintf(sToPrint, "Test from %s to %s FAILED", s2str(start.currentState), s2str(end.currentState));
+    sprintf(sToPrint, "Test from %s to %s FAILED", unitTestStateToString(start.currentState), unitTestStateToString(end.currentState));
     Serial.println(sToPrint);
-    sprintf(sToPrint, "End state expected: %s | actual: %s", s2str(end.currentState), s2str(res.currentState));
+    sprintf(sToPrint, "End state expected: %s | actual: %s", unitTestStateToString(end.currentState), unitTestStateToString(res.currentState));
     Serial.println(sToPrint);
-    sprintf(sToPrint, "Inputs: currentDeg %d | cmd %s | clock %lu", inputs.currentDeg, c2str(inputs.cmd), inputs.clock);
+    sprintf(sToPrint, "Inputs: currentDeg %d | cmd %s | clock %lu", inputs.currentDeg, unitTestCommandToString(inputs.cmd), inputs.clock);
     Serial.println(sToPrint);
     sprintf(sToPrint, "          %12s | %8s | %8s | %10s", "currentState", "lockDeg", "unlockDeg", "startTime");
     Serial.println(sToPrint);
-    sprintf(sToPrint, "starting: %12s | %8d | %8d | %10lu", s2str(start.currentState), start.lockDeg, start.unlockDeg, start.startTime);
+    sprintf(sToPrint, "starting: %12s | %8d | %8d | %10lu", unitTestStateToString(start.currentState), start.lockDeg, start.unlockDeg, start.startTime);
     Serial.println(sToPrint);
-    sprintf(sToPrint, "expected: %12s | %8d | %8d | %10lu", s2str(end.currentState), end.lockDeg, end.unlockDeg, end.startTime);
+    sprintf(sToPrint, "expected: %12s | %8d | %8d | %10lu", unitTestStateToString(end.currentState), end.lockDeg, end.unlockDeg, end.startTime);
     Serial.println(sToPrint);
-    sprintf(sToPrint, "actual:   %12s | %8d | %8d | %10lu", s2str(res.currentState), res.lockDeg, res.unlockDeg, res.startTime);
+    sprintf(sToPrint, "actual:   %12s | %8d | %8d | %10lu", unitTestStateToString(res.currentState), res.lockDeg, res.unlockDeg, res.startTime);
     Serial.println(sToPrint);
     Serial.println("");
     return false;
@@ -347,28 +259,24 @@ const state_inputs testInputs[20] = {
   test16_inputs, test17_inputs, test18_inputs, test19_inputs, test20_inputs
 };
 
-const int numTests = 20;
+const int numUnitTests = 20;
 
 /*
  * Runs through all the test cases defined above
+ * Returns true if all tests pass, false otherwise
  */
-bool testAll() {
-  #ifndef TESTING
-  Serial.println("Testing not compiled. Need to #define TESTING!");
-  return false;
-  #else // TESTING defined!
-  
+bool runUnitTests() {
   Serial.println("========================================");
   Serial.println("Starting Doorlock FSM Unit Tests");
   Serial.println("========================================");
   Serial.println();
   
-  for (int i = 0; i < numTests; i++) {
+  for (int i = 0; i < numUnitTests; i++) {
     Serial.print("Running test ");
     Serial.print(i + 1);
     Serial.print(" of ");
-    Serial.println(numTests);
-    reset();
+    Serial.println(numUnitTests);
+    resetTestState();
     
     if (!testTransition(testStatesIn[i], testStatesOut[i], testInputs[i], true)) {
       Serial.println("========================================");
@@ -383,21 +291,6 @@ bool testAll() {
   Serial.println("All tests passed!");
   Serial.println("========================================");
   return true;
-  #endif // #ifndef TESTING
 }
 
-void setup() {
-  Serial.begin(9600);
-  while (!Serial);
-  
-  #ifdef TESTING
-  testAll();
-  #else
-  Serial.println("Define TESTING to run unit tests");
-  #endif
-}
-
-void loop() {
-  // Empty - tests run once in setup()
-}
-
+#endif // DOORLOCK_UNIT_TESTS_H
