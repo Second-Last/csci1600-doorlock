@@ -17,3 +17,11 @@ export enum MotorCommand {
     Lock = "LOCK",
     Unlock = "UNLOCK"
 }
+
+export enum LockStatus {
+    Lock = "LOCK",
+    Unlock = "UNLOCK",
+    BusyWait = "BUSY_WAIT",
+    BusyMove = "BUSY_MOVE",
+    Bad = "BAD"
+}

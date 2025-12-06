@@ -1,28 +1,45 @@
-import { Text, View, KeyboardAvoidingView, Image, TouchableOpacity } from "react-native";
+import { Text, View, Image, TouchableOpacity } from "react-native";
 import { StyleSheet } from 'react-native';
-import { useLocalSearchParams } from "expo-router";
-import { pushMotorCommand, getLockStatus } from "./api/api";
-import { MotorCommand } from "./api/models";
-import { useRouter } from 'expo-router';
+import { pingLockServer, pushMotorCommand } from "./api/api";
+import { MotorCommand, LockStatus } from "./api/models";
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useFonts } from "expo-font";
 import { useState, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function PushCommand() {
 
-    const [isLocked, setIsLocked] = useState<boolean | null>(null);
-    const [isMoving, setIsMoving] = useState<boolean>(false);
-    const [updateStatusInterval, setUpdateStatusInterval] = useState<number>();
+    const [lockStatus, setLockStatus] = useState<string>();
+    const [lockStatusMsg, setLockStatusMsg] = useState<string>();
     
     const router = useRouter();
-    // const params = useLocalSearchParams();
-    // const { serverAddress, serverPass } = params;
     
     const [fontsLoaded, fontError] = useFonts({
         "SpaceGrotesk-Regular": require("../assets/fonts/SpaceGrotesk-Regular.ttf"),
         "SpaceGrotesk-Bold": require("../assets/fonts/SpaceGrotesk-Bold.ttf")
     });
     
+    const updateLockStatusMsg = (newStatus : string) => {
+        setLockStatus(newStatus)
+
+        switch (newStatus){
+            case LockStatus.Lock:
+                setLockStatusMsg("Locked");
+                break;
+            case LockStatus.Unlock:
+                setLockStatusMsg("Unlocked");
+                break;
+            case LockStatus.BusyMove:
+                setLockStatusMsg("Busy");
+                break;
+            case LockStatus.BusyWait:
+                setLockStatusMsg("Busy");
+                break;
+            default:
+                setLockStatusMsg("Bad");
+                break;
+        }
+    }
 
     const handlePushCommand = async (motorCommand: MotorCommand) => {  
         const serverAddress = await AsyncStorage.getItem('serverAddress');
@@ -40,43 +57,41 @@ export default function PushCommand() {
 
         if(response.status === 200){
             console.log("Command received");
+            const text = (await response.text()).trim()
+            
+            updateLockStatusMsg(text)
+            
         }
     }
 
     const updateLockStatus = async () => {
         const serverAddress = await AsyncStorage.getItem('serverAddress');
+        const serverPass = await AsyncStorage.getItem('serverPass');
 
-        if(!serverAddress){
+        if(!serverAddress || !serverPass){
             return;
         }
 
-        const response = await getLockStatus({
-            serverAddress: serverAddress
+        const response = await pingLockServer({
+            serverAddress: serverAddress,
+            serverPass: serverPass
         });
 
         if (response.status === 200){
-            if ((await response.text()) == MotorCommand.Lock){
-                setIsLocked(true);
-            }
-            else{
-                setIsLocked(false);
-            }
-            setIsMoving(false);
-        }
-        else{
-            setIsMoving(true);
+            const text = (await response.text()).trim();
+            updateLockStatusMsg(text);
         }
     }
 
-    useEffect(() => {
-        setUpdateStatusInterval(
-            setInterval(updateLockStatus, 1000)
-        );
+    useFocusEffect(() => {
+         const updateStatusInterval = setInterval(() => {
+            updateLockStatus()
+        }, 2500)
 
         return () => {
             clearInterval(updateStatusInterval)
         }
-    }, [])
+    });
 
     return (
         <View
@@ -91,7 +106,7 @@ export default function PushCommand() {
             </Text>
             
             <Image
-                source={ isLocked ? require('../assets/images/lock-icon.png') : require('../assets/images/unlock-icon.jpg')}
+                source={(lockStatus === LockStatus.Lock)  ? require('../assets/images/lock-icon.png') : require('../assets/images/unlock-icon.jpg')}
                 style={styles.lockImage}
             />
 
@@ -108,24 +123,15 @@ export default function PushCommand() {
                 }}>
                     Status:
                 </Text>
-                {isMoving 
-                    ?<Text style={{
-                        fontFamily: 'SpaceGrotesk-Regular',
-                        fontSize: 22,
-                        color: '#ffc72c'
-                    }}>
-                        Moving...
-                    </Text>
-                    : <Text style={[{
-                        fontFamily: 'SpaceGrotesk-Regular',
-                        fontSize: 22
-                    }, 
-                        isLocked && { color: '#C00404'}, 
-                        !isLocked && { color: 'green'}
-                    ]}>
-                        {isLocked ? " Locked" : " Unlocked"} 
-                    </Text>
-                }
+
+                <Text style={{
+                    fontFamily: 'SpaceGrotesk-Regular',
+                    fontSize: 22,
+                    color: '#ffc72c'
+                }}>
+                    {` ${lockStatusMsg}`}
+
+                </Text>
             </View>
             
             <View
