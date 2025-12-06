@@ -8,9 +8,7 @@
 
 #include "arduino_secrets.h"
 
-// Uncomment exactly one below to run integration or unit tests.
-// #define INTEGRATION_TEST
-// #define UNIT_TEST
+#include "testing.h"
 
 #if defined(INTEGRATION_TEST) && defined(UNIT_TEST)
 #error "INTEGRATION_TEST and UNIT_TEST cannot be both defined!"
