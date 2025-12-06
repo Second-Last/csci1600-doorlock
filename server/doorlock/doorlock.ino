@@ -555,12 +555,16 @@ void fsmTransition(int deg, unsigned long millis, Command button, Command cmd) {
       } else if (fsmState.curCmd == UNLOCK_CMD && isAtUnlock(deg)) {
         nextState = UNLOCK;
         fsmState.curCmd = NONE;
+#ifndef UNIT_TEST
         myservo.detach();
+#endif
         Serial.println("FSM: BUSY_MOVE -> UNLOCK");
       } else if (fsmState.curCmd == LOCK_CMD && isAtLock(deg)) {
         nextState = LOCK;
         fsmState.curCmd = NONE;
+#ifndef UNIT_TEST
         myservo.detach();
+#endif
         Serial.println("FSM: BUSY_MOVE -> LOCK");
       }
       break;
@@ -568,7 +572,9 @@ void fsmTransition(int deg, unsigned long millis, Command button, Command cmd) {
     case BAD:
       // Stay in BAD state - requires manual reset
       Serial.println("FSM: In BAD state - reset required");
-      myservo.detach();
+#ifndef UNIT_TEST
+        myservo.detach();
+#endif
       break;
   }
 
