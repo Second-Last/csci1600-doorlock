@@ -8,11 +8,41 @@
 
 #include "arduino_secrets.h"
 
+// Uncomment exactly one below to run integration or unit tests.
+// #define INTEGRATION_TEST
+// #define UNIT_TEST
+
+#if defined(INTEGRATION_TEST) && defined(UNIT_TEST)
+#error "INTEGRATION_TEST and UNIT_TEST cannot be both defined!"
+#elif defined(INTEGRATION_TEST) || defined(UNIT_TEST)
+#define TESTING
+#endif
+
+#include "myservo.hpp"
+#include "utils.h"
+
 // FSM State Enum (must be defined before test headers are included)
 enum State { CALIBRATE_LOCK, CALIBRATE_UNLOCK, UNLOCK, LOCK, BUSY_WAIT, BUSY_MOVE, BAD };
 
 // Command Enum
 enum Command { NONE, LOCK_CMD, UNLOCK_CMD };
+
+// Request Enum that represents the different HTTP requests the server can get
+enum Request { EMPTY, UNRECOGNIZED, STATUS, OPTIONS, LOCK_REQ, UNLOCK_REQ };
+
+Command requestToCommand(Request req)
+{
+  switch (req) {
+    case EMPTY:
+    case UNRECOGNIZED:
+    case STATUS:
+      return NONE;
+    case LOCK_REQ:
+      return LOCK_CMD;
+    case UNLOCK_REQ:
+      return UNLOCK_CMD;
+  }
+}
 
 // FSM State struct
 struct FSMState {
@@ -20,17 +50,18 @@ struct FSMState {
   int lockDeg;
   int unlockDeg;
   unsigned long startTime;
+  Command curCmd;
 };
 
 // Timeout constant (milliseconds)
 const unsigned long TOL = 5000;  // 5 second timeout for moves
 
 // Hardcoded lock positions
-const int LOCK_ANGLE = 120;
-const int UNLOCK_ANGLE = 50;
+const int LOCK_ANGLE = 110;
+const int UNLOCK_ANGLE = 40;
 
 // Angle tolerance for position checking (degrees)
-const int ANGLE_TOLERANCE = 3;
+const int ANGLE_TOLERANCE = 5;
 
 // Global FSM state (must be defined before test headers are included)
 FSMState fsmState;
@@ -43,43 +74,17 @@ int getCurrentDeg();
 bool isAtLock(int deg);
 bool isAtUnlock(int deg);
 bool processServerRequest();
-extern Servo myservo;  // Forward declaration - defined after test headers
 
-
-// Uncomment exactly one below to run integration or unit tests.
-#define INTEGRATION_TEST
-// #define UNIT_TEST
-
-#if defined(INTEGRATION_TEST) && defined(UNIT_TEST)
-  #error "INTEGRATION_TEST and UNIT_TEST cannot be both defined!"
-#elif defined(INTEGRATION_TEST) || defined(UNIT_TEST)
-  #define TESTING
-#endif
-
-// Include test files if testing is enabled
-#ifdef UNIT_TEST
-  #include "doorlock_unit_tests.h"
-#endif
-
-#ifdef INTEGRATION_TEST
-  #include "doorlock_integration_tests.h"
-#endif
-
-Servo myservo;
 ArduinoLEDMatrix matrix;
 
 // Control and feedback pins
 const int servoPin = 9;
 const int feedbackPin = A0;
+const int transistorPin = 5;
 
-// Calibration values
-int minDegrees;
-int maxDegrees;
-int minFeedback;
-int maxFeedback;
-int tolerance = 5;  // max feedback measurement error
+MyServo myservo(servoPin, feedbackPin, transistorPin);
+
 State lastDisplayedState = BAD;  // Track last displayed state to avoid unnecessary updates
-
 
 const long wdtInterval = 2684;
 
@@ -293,23 +298,14 @@ bool verifyAuthentication(const String& nonce, const String& signature) {
   return true;
 }
 
-/*
-  This function establishes the feedback values for 2 positions of the servo.
-  With this information, we can interpolate feedback values for intermediate positions
-*/
-void calibrate(Servo servo, int analogPin, int minPos, int maxPos) {
-  // Move to the minimum position and record the feedback value
-  servo.write(minPos);
-  minDegrees = minPos;
-  delay(2000);  // make sure it has time to get there and settle
-  minFeedback = analogRead(analogPin);
+// Include test files if testing is enabled
+#ifdef UNIT_TEST
+#include "doorlock_unit_tests.h"
+#endif
 
-  // Move to the maximum position and record the feedback value
-  servo.write(maxPos);
-  maxDegrees = maxPos;
-  delay(2000);  // make sure it has time to get there and settle
-  maxFeedback = analogRead(analogPin);
-}
+#ifdef INTEGRATION_TEST
+#include "doorlock_integration_tests.h"
+#endif
 
 void setup() {
   Serial.begin(9600);
@@ -318,10 +314,10 @@ void setup() {
 #ifdef INTEGRATION_TEST
   // Run integration tests with HTTP server enabled
   Serial.println("Running integration tests...");
-  
+
   // Initialize EEPROM for authentication
   EEPROM.put(EEPROM_TIMESTAMP_ADDR, 0);
-  
+
   // WiFi setup for HTTP testing
   Serial.println("Setting up WiFi for integration tests...");
   Serial.println(SECRET_SSID);
@@ -353,26 +349,25 @@ void setup() {
   }
   server.begin();
   printWifiStatus();
-  
+
   // Hardware setup
-  myservo.attach(servoPin);
-  calibrate(myservo, feedbackPin, UNLOCK_ANGLE, LOCK_ANGLE);
+  myservo.calibrate(UNLOCK_ANGLE, LOCK_ANGLE);
   Serial.print("minFeedback: ");
-  Serial.println(minFeedback);
+  Serial.println(myservo.minFeedback);
   Serial.print("maxFeedback: ");
-  Serial.println(maxFeedback);
+  Serial.println(myservo.maxFeedback);
   delay(1000);
-  
+
   // Initialize FSM state
   fsmState.currentState = UNLOCK;
   fsmState.lockDeg = LOCK_ANGLE;
   fsmState.unlockDeg = UNLOCK_ANGLE;
   fsmState.startTime = 0;
-  
+
   Serial.println("Integration test setup complete.");
   Serial.println("Server is ready to accept requests.");
-  delay(1000); // Give server a moment to be ready
-  
+  delay(1000);  // Give server a moment to be ready
+
   // Run integration tests (fetch() will call processServerRequest() to handle requests)
   runIntegrationTests();
 
@@ -383,8 +378,7 @@ void setup() {
 
 #else
   // The actual remote door lock!
-
-  EEPROM.put(EEPROM_TIMESTAMP_ADDR, 0);
+  // EEPROM.put(EEPROM_TIMESTAMP_ADDR, 0);
 
   // Initialize Arduino LED Matrix FIRST to test it
   matrix.begin();
@@ -424,14 +418,16 @@ void setup() {
   server.begin();
   printWifiStatus();
 
-  myservo.attach(servoPin);
-
-  calibrate(myservo, feedbackPin, UNLOCK_ANGLE,
-            LOCK_ANGLE);  // calibrate for the 20-160 degree range
+  myservo.init();
+  myservo.calibrate(UNLOCK_ANGLE, LOCK_ANGLE);
   Serial.print("minFeedback: ");
-  Serial.println(minFeedback);
+  Serial.println(myservo.minFeedback);
   Serial.print("maxFeedback: ");
-  Serial.println(maxFeedback);
+  Serial.println(myservo.maxFeedback);
+  Serial.print("minPoFeedback: ");
+  Serial.println(myservo.minPoFeedback);
+  Serial.print("maxPoFeedback: ");
+  Serial.println(myservo.maxPoFeedback);
   delay(1000);
 
   // Initialize EEPROM (virtualEEPROM for Uno R4)
@@ -446,9 +442,10 @@ void setup() {
   fsmState.lockDeg = LOCK_ANGLE;
   fsmState.unlockDeg = UNLOCK_ANGLE;
   fsmState.startTime = 0;
+  fsmState.curCmd = NONE;
 
   Serial.println("FSM initialized in CALIBRATE_LOCK state");
-  Serial.println("Hardcoded angles - Lock: 120, Unlock: 50");
+  Serial.println("Hardcoded angles - Lock: 110, Unlock: 40");
 
   // Display initial state
   updateMatrixDisplay();
@@ -459,35 +456,14 @@ void setup() {
   // control of the motor
   fsmTransition(LOCK_ANGLE, millis(), NONE, NONE);
   fsmTransition(UNLOCK_ANGLE, millis(), NONE, NONE);
-  myservo.write(UNLOCK_ANGLE);
-  delay(1000);
+  myservo.attachAndWrite(UNLOCK_ANGLE);
+  delay(2000);
+  myservo.detach();
 
   Serial.println("FSM ready - now in UNLOCK state");
 
   WDT.begin(wdtInterval);
 #endif
-}
-
-void Seek(Servo servo, int analogPin, int pos) {
-  // Start the move...
-  servo.write(pos);
-
-  // Calculate the target feedback value for the final position
-  int target = map(pos, minDegrees, maxDegrees, minFeedback, maxFeedback);
-  Serial.print("Target: ");
-  Serial.println(target);
-
-  // Wait until it reaches the target
-  while (abs(analogRead(analogPin) - target) > tolerance) {
-    Serial.print("Current reading: ");
-    Serial.println(analogRead(analogPin));
-  }  // wait...
-}
-
-// Get current servo position from feedback
-int getCurrentDeg() {
-  int feedback = analogRead(feedbackPin);
-  return map(feedback, minFeedback, maxFeedback, minDegrees, maxDegrees);
 }
 
 // Check if at unlock position (open-ended tolerance: only check upper bound)
@@ -519,13 +495,16 @@ void fsmTransition(int deg, unsigned long millis, Command button, Command cmd) {
       if (isAtUnlock(deg) && cmd == LOCK_CMD) {
         nextState = BUSY_MOVE;
         fsmState.startTime = millis;
+        fsmState.curCmd = cmd;
 #ifndef UNIT_TEST
-        myservo.write(fsmState.lockDeg);
+        myservo.attachAndWrite(fsmState.lockDeg);
 #endif
-        Serial.println("FSM: UNLOCK -> BUSY_MOVE (locking)");
+        Serial.print("FSM: UNLOCK -> BUSY_MOVE (locking), deg=");
+        Serial.println(deg);
       } else if (isAtLock(deg)) {
         nextState = LOCK;
-        Serial.println("FSM: UNLOCK -> LOCK");
+        Serial.print("FSM: UNLOCK -> LOCK, deg=");
+        Serial.println(deg);
       } else if (!isAtLock(deg) && !isAtUnlock(deg)) {
         nextState = BUSY_WAIT;
         Serial.print("FSM: UNLOCK -> BUSY_WAIT (manual turn detected), deg=");
@@ -537,13 +516,16 @@ void fsmTransition(int deg, unsigned long millis, Command button, Command cmd) {
       if (isAtLock(deg) && cmd == UNLOCK_CMD) {
         nextState = BUSY_MOVE;
         fsmState.startTime = millis;
+        fsmState.curCmd = cmd;
 #ifndef UNIT_TEST
-        myservo.write(fsmState.unlockDeg);
+        myservo.attachAndWrite(fsmState.unlockDeg);
 #endif
-        Serial.println("FSM: LOCK -> BUSY_MOVE (unlocking)");
+        Serial.print("FSM: LOCK -> BUSY_MOVE (unlocking), deg=");
+        Serial.println(deg);
       } else if (isAtUnlock(deg)) {
         nextState = UNLOCK;
-        Serial.println("FSM: LOCK -> UNLOCK");
+        Serial.print("FSM: LOCK -> UNLOCK, deg=");
+        Serial.println(deg);
       } else if (!isAtLock(deg) && !isAtUnlock(deg)) {
         nextState = BUSY_WAIT;
         Serial.print("FSM: LOCK -> BUSY_WAIT (manual turn detected), deg=");
@@ -555,10 +537,12 @@ void fsmTransition(int deg, unsigned long millis, Command button, Command cmd) {
       // No timeout - user can manually turn for as long as they want
       if (isAtUnlock(deg)) {
         nextState = UNLOCK;
-        Serial.println("FSM: BUSY_WAIT -> UNLOCK");
+        Serial.print("FSM: BUSY_WAIT -> UNLOCK, deg=");
+        Serial.println(deg);
       } else if (isAtLock(deg)) {
         nextState = LOCK;
-        Serial.println("FSM: BUSY_WAIT -> LOCK");
+        Serial.print("FSM: BUSY_WAIT -> LOCK, deg=");
+        Serial.println(deg);
       }
       // Otherwise stay in BUSY_WAIT
       break;
@@ -566,12 +550,17 @@ void fsmTransition(int deg, unsigned long millis, Command button, Command cmd) {
     case BUSY_MOVE:
       if (millis - fsmState.startTime > TOL) {
         nextState = BAD;
+        myservo.detach();
         Serial.println("FSM: BUSY_MOVE -> BAD (timeout)");
-      } else if (isAtUnlock(deg)) {
+      } else if (fsmState.curCmd == UNLOCK_CMD && isAtUnlock(deg)) {
         nextState = UNLOCK;
+        fsmState.curCmd = NONE;
+        myservo.detach();
         Serial.println("FSM: BUSY_MOVE -> UNLOCK");
-      } else if (isAtLock(deg)) {
+      } else if (fsmState.curCmd == LOCK_CMD && isAtLock(deg)) {
         nextState = LOCK;
+        fsmState.curCmd = NONE;
+        myservo.detach();
         Serial.println("FSM: BUSY_MOVE -> LOCK");
       }
       break;
@@ -579,119 +568,52 @@ void fsmTransition(int deg, unsigned long millis, Command button, Command cmd) {
     case BAD:
       // Stay in BAD state - requires manual reset
       Serial.println("FSM: In BAD state - reset required");
+      myservo.detach();
       break;
   }
 
   fsmState.currentState = nextState;
 }
 
-void testAngle() {
-  int deg;
-  while (deg = Serial.parseInt()) {
-    Serial.print("Turning to ");
-    Serial.println(deg);
-    Seek(myservo, feedbackPin, deg);
-    delay(5000);
-  }
-}
+Request getTopRequest(WiFiClient& client)
+{
+  if (!client) return EMPTY;
 
-// Process a single HTTP server request
-// Returns true if a request was processed, false if no client available
-bool processServerRequest() {
-  WiFiClient client = server.available();
-  if (!client) {
-    return false;
-  }
-  
-  Command cmd = NONE;
-  bool hasRequest = false;
-  bool isStatus = true;
-  bool isPostLock = false;
-  bool isPostUnlock = false;
-  bool isPostConnect = false;
-  bool isOptions = false;
-  
-  String currentLine = "";
+  Serial.println("new client");
   String nonce = "";
   String signature = "";
-  
-  Serial.println("new client");
-  
+  bool isStatus = false;
+  bool isPostLock = false;
+  bool isPostUnlock = false;
+  bool isOptions = false;
+
+  String currentLine = "";
   while (client.connected()) {
     if (client.available()) {
       char c = client.read();
       Serial.write(c);
 
       if (c == '\n') {
+        // End of the headers of this request, we ignore request bodies.
         if (currentLine.length() == 0) {
-          // End of headers
-          hasRequest = true;
-
-          // Determine which command was requested
+          // // Only process the top request in the buffer
+          // client.flush();
+  
+          Serial.println("finished current message");
           if (isOptions) {
-            client.println("HTTP/1.1 204 No Content");
-            client.println("Access-Control-Allow-Origin: *");
-            client.println("Access-Control-Allow-Headers: Content-Type, X-Nonce, X-Signature");
-            client.println("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-            client.println();  // Empty line to end headers
-            client.stop();
-            Serial.println("OPTIONS response sent, client disconnected");
-            return true;
-          } else if (isPostConnect) {
-            if (verifyAuthentication(nonce, signature)) {
-              client.println("HTTP/1.1 200 OK");
-              client.println("Content-type:text/html");
-              client.println("Access-Control-Allow-Origin: *");
-              client.println();
-              client.println("<p>Doorlock server</p>");
-            }
-            else {
-              client.println("HTTP/1.1 401 Unauthorized");
-              client.println("Content-type:text/html");
-              client.println("Access-Control-Allow-Origin: *");
-              client.println();
-              client.println("<p>Authentication failed</p>");
-            }
-            client.stop();
-            Serial.println("POST /connect response sent, client disconnected");
-            return true;
-          } else if (isPostLock) {
-            // Verify authentication
-            if (verifyAuthentication(nonce, signature)) {
-              cmd = LOCK_CMD;
-              Serial.println("Authenticated LOCK command");
-            } else {
-              Serial.println("LOCK authentication failed");
-              client.println("HTTP/1.1 401 Unauthorized");
-              client.println("Content-type:text/html");
-              client.println("Access-Control-Allow-Origin: *");
-              client.println();
-              client.println("<p>Authentication failed</p>");
-            }
-          } else if (isPostUnlock) {
-            // Verify authentication
-            if (verifyAuthentication(nonce, signature)) {
-              cmd = UNLOCK_CMD;
-              Serial.println("Authenticated UNLOCK command");
-            } else {
-              Serial.println("UNLOCK authentication failed");
-              client.println("HTTP/1.1 401 Unauthorized");
-              client.println("Content-type:text/html");
-              client.println("Access-Control-Allow-Origin: *");
-              client.println();
-              client.println("<p>Authentication failed</p>");
-            }
-          } else if (isStatus) {
+            return OPTIONS;
+          } else if (isPostLock && verifyAuthentication(nonce, signature)) {
+            return LOCK_REQ;
+          } else if (isPostUnlock && verifyAuthentication(nonce, signature)) {
+            return UNLOCK_REQ;
+          } else if (isStatus && verifyAuthentication(nonce, signature)) {
+            return STATUS;
           } else {
-            // No command or GET request
-            client.println("HTTP/1.1 200 OK");
-            client.println("Content-type:text/html");
-            client.println("Access-Control-Allow-Origin: *");
-            client.println();
-            client.println("<p>Doorlock server</p>");
+            // If authentication fails, treat as an unrecognized request (i.e.
+            // 403 access forbidden), similar to how GitHub treats access to
+            // private repos when the access token doesn't match.
+            return UNRECOGNIZED;
           }
-
-          break;
         } else {
           // Parse headers
           if (currentLine.startsWith("OPTIONS /lock") ||
@@ -701,9 +623,9 @@ bool processServerRequest() {
           } else if (currentLine.startsWith("GET /status")) {
             isStatus = true;
             Serial.println("Received GET /status");
-          } else if (currentLine.startsWith("POST /connect")) {
-            isPostConnect = true;
-            Serial.println("Received POST /connect");
+          // } else if (currentLine.startsWith("POST /connect")) {
+          //   isPostConnect = true;
+          //   Serial.println("Received POST /connect");
           } else if (currentLine.startsWith("POST /lock")) {
             isPostLock = true;
             Serial.println("Received LOCK request");
@@ -730,67 +652,86 @@ bool processServerRequest() {
     }
   }
 
-  // Get current servo position
-  int currentDeg = getCurrentDeg();
+  // Final fallback, we should never reach here but it doesn't hurt to add a
+  // case.
+  return UNRECOGNIZED;
+}
 
-  // Run FSM transition
-  fsmTransition(currentDeg, millis(), NONE, cmd);
+void respondHTTP(WiFiClient& client, int code, String codeName, String body, String extraHeaders) {
+  // Line 1
+  client.print("HTTP/1.1 ");
+  client.print(code);
+  client.print(" ");
+  client.println(codeName);
 
-  // Update LED matrix display
-  updateMatrixDisplay();
+  // Line 3
+  client.println("Content-type:text/plain");
 
-  // Return HTTP response if there is any
-  // Note: OPTIONS and POST /connect responses are already sent and client disconnected above
-  if (hasRequest && !isOptions && !isPostConnect) {
-    if (!client.connected()) {
-      return true;  // Client already disconnected
-    }
+  // Line 2
+  client.println("Access-Control-Allow-Origin: *");
 
-    State currentState = fsmState.currentState;
-    if (cmd != NONE) {
-      if (cmd == LOCK_CMD &&
-          (currentState == LOCK || currentState == BUSY_MOVE || currentState == UNLOCK)) {
-        client.println("HTTP/1.1 200 OK");
-        client.println("Content-type:text/html");
-        client.println("Access-Control-Allow-Origin: *");
-        client.println();
-        client.println("<p>Lock command authenticated</p>");
-      } else if (cmd == UNLOCK_CMD &&
-                 (currentState == LOCK || currentState == BUSY_MOVE || currentState == UNLOCK)) {
-        client.println("HTTP/1.1 200 OK");
-        client.println("Content-type:text/html");
-        client.println("Access-Control-Allow-Origin: *");
-        client.println();
-        client.println("<p>Unlock command authenticated</p>");
-      } else {
-        client.println("HTTP/1.1 503 Service Unavailable");
-        client.println("Content-type:text/html");
-        client.println("Access-Control-Allow-Origin: *");
-        client.println();
-        client.println("<p>Sorry, the system is currently busy or in a bad state...</p>");
-      }
-    } else if (isStatus) {
-      client.println("HTTP/1.1 200 OK");
-      client.println("Content-type:text/plain");
-      client.println("Access-Control-Allow-Origin: *");
-      client.println();
-      client.println(stateToString(currentState));
-    }
-
-    client.println();
-    client.stop();
-    Serial.println("client disconnected");
+  // Extra headers:
+  if (extraHeaders.length() > 0) {
+    client.println(extraHeaders);
   }
 
-  return hasRequest;
+  client.println();
+  if (body.length() > 0) {
+    // Body
+    client.println(body);
+  }
+  client.println();
+}
+
+void respondRequest(WiFiClient& client, Request req, State st)
+{
+  if (req == EMPTY) return;
+  assert(client);
+
+  if (req == OPTIONS) {
+    respondHTTP(client, 204, "No Content", "", "Access-Control-Allow-Headers: Content-Type, X-Nonce, X-Signature\nAccess-Control-Allow-Methods: POST, OPTIONS");
+  } else if (req == LOCK_REQ && (st == LOCK || st == BUSY_MOVE)) {
+    respondHTTP(client, 200, "OK", "", "");
+  } else if (req == UNLOCK_REQ && (st == UNLOCK || st == BUSY_MOVE)) {
+    respondHTTP(client, 200, "OK", "", "");
+  } else if (req == UNRECOGNIZED) {
+    respondHTTP(client, 403, "Forbidden", "", "");
+  } else if (req == STATUS) {
+    Serial.println("Responding status");
+    respondHTTP(client, 200, "OK", stateToString(st), "");
+  } else {
+    // This is the case where we attempt to lock/unlock but for whatever reason
+    // this request cannot be processed (e.g. FSM is in BUSY_WAIT)
+    respondHTTP(client, 503, "Service Unavailable", "", "");
+  }
+
+  client.stop();
+  Serial.println("client disconnected");
 }
 
 void loop() {
 #ifndef TESTING
-  // Handle WiFi clients (for production mode only)
-  // Note: Tests run in setup() and don't need loop()
-  processServerRequest();
+  // Parse HTTP request (if any) and obtain the corresponding command.
+  WiFiClient client = server.available();
+  if (client) {
+    Serial.println("Has client available!");
+  }
+  Request req = getTopRequest(client);
+  Command cmd = requestToCommand(req);
 
+  // Get current servo position
+  int currentDeg = myservo.deg();
+
+  // Run FSM transition
+  fsmTransition(currentDeg, millis(), NONE, cmd);
+
+  // Respond to request, if any
+  respondRequest(client, req, fsmState.currentState);
+
+  // Update LED matrix display
+  updateMatrixDisplay();
+
+  // Pet watchdog
   WDT.refresh();
 
   // Small delay
