@@ -241,13 +241,11 @@ bool constantTimeCompare(const unsigned char* a, const unsigned char* b, size_t 
 // Verify HMAC authentication
 // Returns true if authentication succeeds
 bool verifyAuthentication(const String& nonce, const String& signature) {
-#ifdef INTEGRATION_TEST
-  return true;
-#else
   // Parse nonce as unsigned long
   unsigned long requestTimestamp = nonce.toInt();
   if (requestTimestamp == 0 && nonce != "0") {
-    Serial.println("Auth failed: invalid nonce format");
+    Serial.print("Auth failed: invalid nonce format, nonce=");
+    Serial.println(nonce);
     return false;
   }
 
@@ -286,7 +284,6 @@ bool verifyAuthentication(const String& nonce, const String& signature) {
 
   Serial.println("Auth success");
   return true;
-#endif
 }
 
 // Check if at unlock position (open-ended tolerance: only check upper bound)
@@ -445,7 +442,8 @@ Request getTopRequest(WiFiClient& client)
         } else {
           // Parse headers
           if (currentLine.startsWith("OPTIONS /lock") ||
-              currentLine.startsWith("OPTIONS /unlock")) {
+              currentLine.startsWith("OPTIONS /unlock") ||
+              currentLine.startsWith("OPTIONS /status")) {
             isOptions = true;
             // Serial.println("Received OPTIONS request");
           } else if (currentLine.startsWith("GET /status")) {
@@ -517,11 +515,11 @@ void respondRequest(WiFiClient& client, Request req, State st)
   assert(client);
 
   if (req == OPTIONS) {
-    respondHTTP(client, 204, "No Content", "", "Access-Control-Allow-Headers: Content-Type, X-Nonce, X-Signature\nAccess-Control-Allow-Methods: POST, OPTIONS");
+    respondHTTP(client, 204, "No Content", "", "Access-Control-Allow-Headers: Content-Type, X-Nonce, X-Signature\nAccess-Control-Allow-Methods: GET, POST, OPTIONS");
   } else if (req == LOCK_REQ && (st == LOCK || st == BUSY_MOVE)) {
-    respondHTTP(client, 200, "OK", "", "");
+    respondHTTP(client, 200, "OK", stateToString(st), "");
   } else if (req == UNLOCK_REQ && (st == UNLOCK || st == BUSY_MOVE)) {
-    respondHTTP(client, 200, "OK", "", "");
+    respondHTTP(client, 200, "OK", stateToString(st), "");
   } else if (req == UNRECOGNIZED) {
     respondHTTP(client, 403, "Forbidden", "", "");
   } else if (req == STATUS) {
@@ -529,7 +527,7 @@ void respondRequest(WiFiClient& client, Request req, State st)
   } else {
     // This is the case where we attempt to lock/unlock but for whatever reason
     // this request cannot be processed (e.g. FSM is in BUSY_WAIT)
-    respondHTTP(client, 503, "Service Unavailable", "", "");
+    respondHTTP(client, 503, "Service Unavailable", stateToString(st), "");
   }
 
   client.stop();

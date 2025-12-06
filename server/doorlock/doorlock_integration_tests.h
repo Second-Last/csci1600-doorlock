@@ -205,12 +205,9 @@ AuthHeaders generateAuth(const char* password) {
 // These match the actual client API from mobile-lock-control/app/api/api.ts
 
 // GET /status - Mimics: getLockStatus()
-HTTPTestResult getStatus() { return fetch("/status", "GET"); }
-
-// POST /connect - Mimics: pingLockServer()
-HTTPTestResult connectToServer(const char* password) {
-  AuthHeaders auth = generateAuth(password);
-  return fetch("/connect", "POST", auth.nonce, auth.signature);
+HTTPTestResult getStatus(const char* password) {
+	AuthHeaders auth = generateAuth(password);
+	return fetch("/status", "GET", auth.nonce, auth.signature);
 }
 
 // POST /lock - Mimics: pushMotorCommand() with MotorCommand.Lock
@@ -233,7 +230,7 @@ bool sendOPTIONSRequest(const String& path) {
 
 // Wait for FSM to reach a specific state by polling /status
 // Note: loop() must be running for server to process requests
-bool waitForState(State targetState, unsigned long timeoutMs) {
+bool waitForState(State targetState, unsigned long timeoutMs, const char* password) {
   unsigned long startTime = millis();
 
   while (millis() - startTime < timeoutMs) {
@@ -241,7 +238,7 @@ bool waitForState(State targetState, unsigned long timeoutMs) {
     // This is important because FSM needs to check position and transition states
     processServerRequest();
 
-    HTTPTestResult result = getStatus();
+    HTTPTestResult result = getStatus(password);
 
     if (result.passed && result.statusCode == 200) {
       String stateStr = result.responseBody;
@@ -326,10 +323,10 @@ bool testHTTPLockToUnlock() {
 
   // Step 3: Poll status until UNLOCK is reached
   Serial.println("Step 3: Polling status until UNLOCK...");
-  bool reachedUnlock = waitForState(UNLOCK, 10000);  // 10 second timeout
+  bool reachedUnlock = waitForState(UNLOCK, 10000, TEST_PASSWORD);  // 10 second timeout
 
   // Step 4: Verify final state
-  HTTPTestResult statusResult = getStatus();
+  HTTPTestResult statusResult = getStatus(TEST_PASSWORD);
   bool finalStateCorrect = (statusResult.passed && statusResult.statusCode == 200 &&
                             statusResult.responseBody == "UNLOCK");
 
@@ -420,10 +417,10 @@ bool testHTTPUnlockToLock() {
 
   // Step 3: Poll status until LOCK is reached
   Serial.println("Step 3: Polling status until LOCK...");
-  bool reachedLock = waitForState(LOCK, 10000);  // 10 second timeout
+  bool reachedLock = waitForState(LOCK, 10000, TEST_PASSWORD);  // 10 second timeout
 
   // Step 4: Verify final state
-  HTTPTestResult statusResult = getStatus();
+  HTTPTestResult statusResult = getStatus(TEST_PASSWORD);
   bool finalStateCorrect = (statusResult.passed && statusResult.statusCode == 200 &&
                             statusResult.responseBody == "LOCK");
 
@@ -458,7 +455,7 @@ bool testHTTPAuthentication() {
 
   // Test 1: Correct password
   Serial.println("Test 3.1: Testing with correct password...");
-  HTTPTestResult correctResult = connectToServer(TEST_PASSWORD);
+  HTTPTestResult correctResult = getStatus(TEST_PASSWORD);
   bool correctAuth = (correctResult.statusCode == 200);
 
   Serial.print("Status Code: ");
@@ -476,8 +473,8 @@ bool testHTTPAuthentication() {
 
   // Test 2: Incorrect password
   Serial.println("\nTest 3.2: Testing with incorrect password...");
-  HTTPTestResult incorrectResult = connectToServer("wrongpassword");
-  bool incorrectAuth = (incorrectResult.statusCode == 401);
+  HTTPTestResult incorrectResult = getStatus("wrongpassword");
+  bool incorrectAuth = (incorrectResult.statusCode == 403);
 
   Serial.print("Status Code: ");
   Serial.println(incorrectResult.statusCode);
@@ -522,7 +519,7 @@ bool testHTTPStatusEndpoint() {
   delay(100);  // Allow state to settle
 
   Serial.println("Testing GET /status endpoint...");
-  HTTPTestResult result = getStatus();
+  HTTPTestResult result = getStatus(TEST_PASSWORD);
 
   bool testPassed = (result.statusCode == 200 &&
                      (result.responseBody == "UNLOCK" || result.responseBody == "LOCK" ||
