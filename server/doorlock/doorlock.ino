@@ -241,8 +241,9 @@ bool constantTimeCompare(const unsigned char* a, const unsigned char* b, size_t 
 // Verify HMAC authentication
 // Returns true if authentication succeeds
 bool verifyAuthentication(const String& nonce, const String& signature) {
-  // // TODO(gz): temporary for testing.
-  // return true;
+#ifdef INTEGRATION_TEST
+  return true;
+#else
   // Parse nonce as unsigned long
   unsigned long requestTimestamp = nonce.toInt();
   if (requestTimestamp == 0 && nonce != "0") {
@@ -285,6 +286,7 @@ bool verifyAuthentication(const String& nonce, const String& signature) {
 
   Serial.println("Auth success");
   return true;
+#endif
 }
 
 // Check if at unlock position (open-ended tolerance: only check upper bound)
@@ -406,7 +408,7 @@ Request getTopRequest(WiFiClient& client)
 {
   if (!client) return EMPTY;
 
-  Serial.println("new client");
+  // Serial.println("new client");
   String nonce = "";
   String signature = "";
   bool isStatus = false;
@@ -418,7 +420,7 @@ Request getTopRequest(WiFiClient& client)
   while (client.connected()) {
     if (client.available()) {
       char c = client.read();
-      Serial.write(c);
+      // Serial.write(c);
 
       if (c == '\n') {
         // End of the headers of this request, we ignore request bodies.
@@ -426,7 +428,6 @@ Request getTopRequest(WiFiClient& client)
           // // Only process the top request in the buffer
           // client.flush();
   
-          Serial.println("finished current message");
           if (isOptions) {
             return OPTIONS;
           } else if (isPostLock && verifyAuthentication(nonce, signature)) {
@@ -446,29 +447,29 @@ Request getTopRequest(WiFiClient& client)
           if (currentLine.startsWith("OPTIONS /lock") ||
               currentLine.startsWith("OPTIONS /unlock")) {
             isOptions = true;
-            Serial.println("Received OPTIONS request");
+            // Serial.println("Received OPTIONS request");
           } else if (currentLine.startsWith("GET /status")) {
             isStatus = true;
-            Serial.println("Received GET /status");
+            // Serial.println("Received GET /status");
           // } else if (currentLine.startsWith("POST /connect")) {
           //   isPostConnect = true;
           //   Serial.println("Received POST /connect");
           } else if (currentLine.startsWith("POST /lock")) {
             isPostLock = true;
-            Serial.println("Received LOCK request");
+            // Serial.println("Received LOCK request");
           } else if (currentLine.startsWith("POST /unlock")) {
             isPostUnlock = true;
-            Serial.println("Received UNLOCK request");
+            // Serial.println("Received UNLOCK request");
           } else if (currentLine.startsWith("X-Nonce: ")) {
             nonce = currentLine.substring(9);
             nonce.trim();
-            Serial.print("Nonce: ");
-            Serial.println(nonce);
+            // Serial.print("Nonce: ");
+            // Serial.println(nonce);
           } else if (currentLine.startsWith("X-Signature: ")) {
             signature = currentLine.substring(13);
             signature.trim();
-            Serial.print("Signature: ");
-            Serial.println(signature);
+            // Serial.print("Signature: ");
+            // Serial.println(signature);
           }
 
           currentLine = "";
@@ -524,7 +525,6 @@ void respondRequest(WiFiClient& client, Request req, State st)
   } else if (req == UNRECOGNIZED) {
     respondHTTP(client, 403, "Forbidden", "", "");
   } else if (req == STATUS) {
-    Serial.println("Responding status");
     respondHTTP(client, 200, "OK", stateToString(st), "");
   } else {
     // This is the case where we attempt to lock/unlock but for whatever reason
