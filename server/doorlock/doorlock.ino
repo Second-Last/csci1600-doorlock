@@ -361,6 +361,7 @@ void setup() {
   fsmState.lockDeg = LOCK_ANGLE;
   fsmState.unlockDeg = UNLOCK_ANGLE;
   fsmState.startTime = 0;
+  fsmState.curCmd = NONE;
 
   Serial.println("Integration test setup complete.");
   Serial.println("Server is ready to accept requests.");

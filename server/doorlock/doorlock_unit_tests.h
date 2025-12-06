@@ -73,6 +73,7 @@ void resetTestState() {
   fsmState.lockDeg = LOCK_ANGLE;
   fsmState.unlockDeg = UNLOCK_ANGLE;
   fsmState.startTime = 0;
+  fsmState.curCmd = NONE;
 }
 
 /*
@@ -103,7 +104,8 @@ bool testTransition(FSMState start,
   bool passedTest = (res.currentState == end.currentState &&
                      res.lockDeg == end.lockDeg &&
                      res.unlockDeg == end.unlockDeg &&
-                     res.startTime == end.startTime);
+                     res.startTime == end.startTime &&
+                     res.curCmd == end.curCmd);
 
   if (!verbose) {
     return passedTest;
@@ -120,13 +122,13 @@ bool testTransition(FSMState start,
     Serial.println(sToPrint);
     sprintf(sToPrint, "Inputs: currentDeg %d | cmd %s | clock %lu", inputs.currentDeg, unitTestCommandToString(inputs.cmd), inputs.clock);
     Serial.println(sToPrint);
-    sprintf(sToPrint, "          %12s | %8s | %8s | %10s", "currentState", "lockDeg", "unlockDeg", "startTime");
+    sprintf(sToPrint, "          %12s | %8s | %8s | %10s | %8s", "currentState", "lockDeg", "unlockDeg", "startTime", "curCmd");
     Serial.println(sToPrint);
-    sprintf(sToPrint, "starting: %12s | %8d | %8d | %10lu", unitTestStateToString(start.currentState), start.lockDeg, start.unlockDeg, start.startTime);
+    sprintf(sToPrint, "starting: %12s | %8d | %8d | %10lu | %8s", unitTestStateToString(start.currentState), start.lockDeg, start.unlockDeg, start.startTime, unitTestCommandToString(start.curCmd));
     Serial.println(sToPrint);
-    sprintf(sToPrint, "expected: %12s | %8d | %8d | %10lu", unitTestStateToString(end.currentState), end.lockDeg, end.unlockDeg, end.startTime);
+    sprintf(sToPrint, "expected: %12s | %8d | %8d | %10lu | %8s", unitTestStateToString(end.currentState), end.lockDeg, end.unlockDeg, end.startTime, unitTestCommandToString(end.curCmd));
     Serial.println(sToPrint);
-    sprintf(sToPrint, "actual:   %12s | %8d | %8d | %10lu", unitTestStateToString(res.currentState), res.lockDeg, res.unlockDeg, res.startTime);
+    sprintf(sToPrint, "actual:   %12s | %8d | %8d | %10lu | %8s", unitTestStateToString(res.currentState), res.lockDeg, res.unlockDeg, res.startTime, unitTestCommandToString(res.curCmd));
     Serial.println(sToPrint);
     Serial.println("");
     return false;
@@ -138,103 +140,103 @@ bool testTransition(FSMState start,
  */
 
 // Test 1: UNLOCK to BUSY_WAIT (manual turn detected - intermediate position)
-const FSMState test1_start = {UNLOCK, 120, 50, 0};
-const FSMState test1_end = {BUSY_WAIT, 120, 50, 0};
+const FSMState test1_start = {UNLOCK, 120, 50, 0, NONE};
+const FSMState test1_end = {BUSY_WAIT, 120, 50, 0, NONE};
 const state_inputs test1_inputs = {75, NONE, 1000};  // 75 deg is between 50 and 120
 
 // Test 2: UNLOCK to BUSY_MOVE (lock command received while at unlock position)
-const FSMState test2_start = {UNLOCK, 120, 50, 0};
-const FSMState test2_end = {BUSY_MOVE, 120, 50, 2000};
+const FSMState test2_start = {UNLOCK, 120, 50, 0, NONE};
+const FSMState test2_end = {BUSY_MOVE, 120, 50, 2000, LOCK_CMD};
 const state_inputs test2_inputs = {50, LOCK_CMD, 2000};  // At unlock (50), command to lock
 
 // Test 3: UNLOCK to LOCK (detected at lock position)
-const FSMState test3_start = {UNLOCK, 120, 50, 0};
-const FSMState test3_end = {LOCK, 120, 50, 0};
+const FSMState test3_start = {UNLOCK, 120, 50, 0, NONE};
+const FSMState test3_end = {LOCK, 120, 50, 0, NONE};
 const state_inputs test3_inputs = {120, NONE, 1000};  // At lock position (120)
 
 // Test 4: UNLOCK to UNLOCK (self transition - stay at unlock)
-const FSMState test4_start = {UNLOCK, 120, 50, 0};
-const FSMState test4_end = {UNLOCK, 120, 50, 0};
+const FSMState test4_start = {UNLOCK, 120, 50, 0, NONE};
+const FSMState test4_end = {UNLOCK, 120, 50, 0, NONE};
 const state_inputs test4_inputs = {48, NONE, 1000};  // At unlock, no command, no change
 
 // Test 5: BUSY_WAIT to LOCK (reached lock position)
-const FSMState test5_start = {BUSY_WAIT, 120, 50, 0};
-const FSMState test5_end = {LOCK, 120, 50, 0};
+const FSMState test5_start = {BUSY_WAIT, 120, 50, 0, NONE};
+const FSMState test5_end = {LOCK, 120, 50, 0, NONE};
 const state_inputs test5_inputs = {120, NONE, 1000};  // Reached lock position
 
 // Test 6: BUSY_WAIT to UNLOCK (reached unlock position)
-const FSMState test6_start = {BUSY_WAIT, 120, 50, 0};
-const FSMState test6_end = {UNLOCK, 120, 50, 0};
+const FSMState test6_start = {BUSY_WAIT, 120, 50, 0, NONE};
+const FSMState test6_end = {UNLOCK, 120, 50, 0, NONE};
 const state_inputs test6_inputs = {50, NONE, 1000};  // Reached unlock position
 
 // Test 7: BUSY_WAIT to BUSY_WAIT (self transition - still in intermediate)
-const FSMState test7_start = {BUSY_WAIT, 120, 50, 0};
-const FSMState test7_end = {BUSY_WAIT, 120, 50, 0};
+const FSMState test7_start = {BUSY_WAIT, 120, 50, 0, NONE};
+const FSMState test7_end = {BUSY_WAIT, 120, 50, 0, NONE};
 const state_inputs test7_inputs = {80, NONE, 1000};  // Still intermediate
 
 // Test 8: BUSY_MOVE to LOCK (reached lock position during move)
-const FSMState test8_start = {BUSY_MOVE, 120, 50, 1000};
-const FSMState test8_end = {LOCK, 120, 50, 1000};
+const FSMState test8_start = {BUSY_MOVE, 120, 50, 1000, LOCK_CMD};
+const FSMState test8_end = {LOCK, 120, 50, 1000, NONE};
 const state_inputs test8_inputs = {120, NONE, 2000};  // Reached lock, within timeout
 
 // Test 9: BUSY_MOVE to UNLOCK (reached unlock position during move)
-const FSMState test9_start = {BUSY_MOVE, 120, 50, 1000};
-const FSMState test9_end = {UNLOCK, 120, 50, 1000};
+const FSMState test9_start = {BUSY_MOVE, 120, 50, 1000, UNLOCK_CMD};
+const FSMState test9_end = {UNLOCK, 120, 50, 1000, NONE};
 const state_inputs test9_inputs = {50, NONE, 2000};  // Reached unlock, within timeout
 
 // Test 10: BUSY_MOVE to BAD (timeout exceeded)
-const FSMState test10_start = {BUSY_MOVE, 120, 50, 1000};
-const FSMState test10_end = {BAD, 120, 50, 1000};
+const FSMState test10_start = {BUSY_MOVE, 120, 50, 1000, LOCK_CMD};
+const FSMState test10_end = {BAD, 120, 50, 1000, LOCK_CMD};
 const state_inputs test10_inputs = {75, NONE, 7000};  // 6000ms elapsed > 5000ms timeout
 
 // Test 11: BUSY_MOVE to BUSY_MOVE (self transition - still moving, within timeout)
-const FSMState test11_start = {BUSY_MOVE, 120, 50, 1000};
-const FSMState test11_end = {BUSY_MOVE, 120, 50, 1000};
+const FSMState test11_start = {BUSY_MOVE, 120, 50, 1000, LOCK_CMD};
+const FSMState test11_end = {BUSY_MOVE, 120, 50, 1000, LOCK_CMD};
 const state_inputs test11_inputs = {75, NONE, 3000};  // Still moving, 2000ms < timeout
 
 // Test 12: LOCK to BUSY_MOVE (unlock command received while at lock position)
-const FSMState test12_start = {LOCK, 120, 50, 0};
-const FSMState test12_end = {BUSY_MOVE, 120, 50, 2000};
+const FSMState test12_start = {LOCK, 120, 50, 0, NONE};
+const FSMState test12_end = {BUSY_MOVE, 120, 50, 2000, UNLOCK_CMD};
 const state_inputs test12_inputs = {120, UNLOCK_CMD, 2000};  // At lock (120), command to unlock
 
 // Test 13: LOCK to UNLOCK (detected at unlock position)
-const FSMState test13_start = {LOCK, 120, 50, 0};
-const FSMState test13_end = {UNLOCK, 120, 50, 0};
+const FSMState test13_start = {LOCK, 120, 50, 0, NONE};
+const FSMState test13_end = {UNLOCK, 120, 50, 0, NONE};
 const state_inputs test13_inputs = {50, NONE, 1000};  // At unlock position
 
 // Test 14: LOCK to BUSY_WAIT (manual turn detected - intermediate position)
-const FSMState test14_start = {LOCK, 120, 50, 0};
-const FSMState test14_end = {BUSY_WAIT, 120, 50, 0};
+const FSMState test14_start = {LOCK, 120, 50, 0, NONE};
+const FSMState test14_end = {BUSY_WAIT, 120, 50, 0, NONE};
 const state_inputs test14_inputs = {85, NONE, 1000};  // Intermediate position
 
 // Test 15: LOCK to LOCK (self transition - stay at lock)
-const FSMState test15_start = {LOCK, 120, 50, 0};
-const FSMState test15_end = {LOCK, 120, 50, 0};
+const FSMState test15_start = {LOCK, 120, 50, 0, NONE};
+const FSMState test15_end = {LOCK, 120, 50, 0, NONE};
 const state_inputs test15_inputs = {122, NONE, 1000};  // At lock, no command, no change
 
 // Test 16: BUSY_MOVE to BUSY_MOVE (at boundary - exactly at timeout threshold but not exceeded)
-const FSMState test16_start = {BUSY_MOVE, 120, 50, 1000};
-const FSMState test16_end = {BUSY_MOVE, 120, 50, 1000};
+const FSMState test16_start = {BUSY_MOVE, 120, 50, 1000, LOCK_CMD};
+const FSMState test16_end = {BUSY_MOVE, 120, 50, 1000, LOCK_CMD};
 const state_inputs test16_inputs = {75, NONE, 5999};  // 4999ms elapsed, just under timeout
 
 // Test 17: BUSY_MOVE to BAD (exactly at timeout)
-const FSMState test17_start = {BUSY_MOVE, 120, 50, 1000};
-const FSMState test17_end = {BAD, 120, 50, 1000};
+const FSMState test17_start = {BUSY_MOVE, 120, 50, 1000, LOCK_CMD};
+const FSMState test17_end = {BAD, 120, 50, 1000, LOCK_CMD};
 const state_inputs test17_inputs = {75, NONE, 6001};  // 5001ms elapsed, just over timeout
 
 // Test 18: UNLOCK to BUSY_WAIT (edge case - just outside unlock tolerance)
-const FSMState test18_start = {UNLOCK, 120, 50, 0};
-const FSMState test18_end = {BUSY_WAIT, 120, 50, 0};
-const state_inputs test18_inputs = {54, NONE, 1000};  // 54 = 50 + 3 + 1, just outside tolerance
+const FSMState test18_start = {UNLOCK, 120, 50, 0, NONE};
+const FSMState test18_end = {BUSY_WAIT, 120, 50, 0, NONE};
+const state_inputs test18_inputs = {60, NONE, 1000};  //  just outside tolerance
 
 // Test 19: BUSY_MOVE to LOCK (edge case - just at lock tolerance boundary)
-const FSMState test19_start = {BUSY_MOVE, 120, 50, 1000};
-const FSMState test19_end = {LOCK, 120, 50, 1000};
+const FSMState test19_start = {BUSY_MOVE, 120, 50, 1000, LOCK_CMD};
+const FSMState test19_end = {LOCK, 120, 50, 1000, NONE};
 const state_inputs test19_inputs = {117, NONE, 2000};  // 117 = 120 - 3, at tolerance boundary
 
 // Test 20: BUSY_MOVE to UNLOCK (edge case - just at unlock tolerance boundary)
-const FSMState test20_start = {BUSY_MOVE, 120, 50, 1000};
-const FSMState test20_end = {UNLOCK, 120, 50, 1000};
+const FSMState test20_start = {BUSY_MOVE, 120, 50, 1000, UNLOCK_CMD};
+const FSMState test20_end = {UNLOCK, 120, 50, 1000, NONE};
 const state_inputs test20_inputs = {53, NONE, 2000};  // 53 = 50 + 3, at tolerance boundary
 
 // Array of all test cases

@@ -274,6 +274,7 @@ bool testHTTPLockToUnlock() {
   fsmState.lockDeg = LOCK_ANGLE;
   fsmState.unlockDeg = UNLOCK_ANGLE;
   fsmState.startTime = 0;
+  fsmState.curCmd = NONE;
   myservo.write(LOCK_ANGLE);
   delay(2000); // Wait for motor to reach lock position
   
@@ -354,6 +355,7 @@ bool testHTTPUnlockToLock() {
   fsmState.lockDeg = LOCK_ANGLE;
   fsmState.unlockDeg = UNLOCK_ANGLE;
   fsmState.startTime = 0;
+  fsmState.curCmd = NONE;
   myservo.write(UNLOCK_ANGLE);
   delay(2000); // Wait for motor to reach unlock position
   
@@ -505,6 +507,7 @@ bool testHTTPStatusEndpoint() {
   
   // Set a known state
   fsmState.currentState = UNLOCK;
+  fsmState.curCmd = NONE;
   delay(100); // Allow state to settle
   
   Serial.println("Testing GET /status endpoint...");
@@ -555,6 +558,7 @@ bool testMotorWithInterference() {
   
   // Start from UNLOCK state
   fsmState.currentState = UNLOCK;
+  fsmState.curCmd = NONE;
   myservo.write(UNLOCK_ANGLE);
   delay(2000);
   
@@ -684,6 +688,7 @@ bool testFSMCommandResponse() {
   
   // Start from UNLOCK
   fsmState.currentState = UNLOCK;
+  fsmState.curCmd = NONE;
   myservo.write(UNLOCK_ANGLE);
   delay(2000);
   
@@ -745,6 +750,7 @@ bool testWatchdogTimeout() {
   // Start from BUSY_MOVE state with old startTime
   fsmState.currentState = BUSY_MOVE;
   fsmState.startTime = millis() - TOL - 1000; // Set startTime to 6 seconds ago (exceeds 5s timeout)
+  fsmState.curCmd = LOCK_CMD; // Set a command for BUSY_MOVE state
   
   Serial.println("Simulating timeout condition...");
   Serial.print("Current time: ");
