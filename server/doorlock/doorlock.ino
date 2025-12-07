@@ -6,17 +6,18 @@
 #include <WDT.h>
 #include <WiFiS3.h>
 
-#include "arduino_secrets.h"
-#include "testing.h"
+#include "utils.h"
+#include "myservo.hpp"
+
+// This files controls whether to run testing, secrets, and other configurations
+// of the doorlock.
+#include "config.h"
 
 #if defined(INTEGRATION_TEST) && defined(UNIT_TEST)
 #error "INTEGRATION_TEST and UNIT_TEST cannot be both defined!"
 #elif defined(INTEGRATION_TEST) || defined(UNIT_TEST)
 #define TESTING
 #endif
-
-#include "myservo.hpp"
-#include "utils.h"
 
 // FSM State Enum (must be defined before test headers are included)
 enum State { CALIBRATE_LOCK, CALIBRATE_UNLOCK, UNLOCK, LOCK, BUSY_WAIT, BUSY_MOVE, BAD };

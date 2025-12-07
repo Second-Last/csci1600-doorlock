@@ -1,4 +1,0 @@
-// Copy this file to `testing.h`. Then,
-// uncomment exactly one below to run integration or unit tests.
-#define INTEGRATION_TEST
-#define UNIT_TEST
