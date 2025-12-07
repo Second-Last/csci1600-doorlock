@@ -1,2 +1,4 @@
 arduino_secrets.h
 testing.h
+config.h
+sketch.yaml

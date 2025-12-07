@@ -1,0 +1,24 @@
+// Copy this file to `config.h`, and adjust the fields or uncomment
+// lines accordingly.
+
+// This is the name of the WiFi to connect to.
+// If you haven't registered your Arduino on Brown-Guest, a phone hotpost is
+// recommended.
+#define SECRET_SSID "Brown-Guest"
+// Uncomment this field and fill in the password of the WiFi if you're not
+// going to connect to a public WiFi.
+// #define SECRET_PASS "88888888"
+#define REMOTE_LOCK_PASS "randomlychosenpass"
+
+// Uncomment below to skip authentication. Obviously, don't do this in
+// production.
+// #define SKIP_AUTH
+
+// Uncomment below to set timestamp in EEPROM to 0 on startup.
+// Don't do this in production, because this means replay attacks can be made
+// by forcing a device restart.
+// #define RESET_TIMESTAMP
+
+// Uncomment **exactly** one of the two below to run integration or unit tests.
+// #define INTEGRATION_TEST
+// #define UNIT_TEST
