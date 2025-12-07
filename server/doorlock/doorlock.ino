@@ -7,7 +7,6 @@
 #include <WiFiS3.h>
 
 #include "arduino_secrets.h"
-
 #include "testing.h"
 
 #if defined(INTEGRATION_TEST) && defined(UNIT_TEST)
@@ -28,8 +27,7 @@ enum Command { NONE, LOCK_CMD, UNLOCK_CMD };
 // Request Enum that represents the different HTTP requests the server can get
 enum Request { EMPTY, UNRECOGNIZED, STATUS, OPTIONS, LOCK_REQ, UNLOCK_REQ };
 
-Command requestToCommand(Request req)
-{
+Command requestToCommand(Request req) {
   switch (req) {
     case EMPTY:
     case UNRECOGNIZED:
@@ -241,6 +239,9 @@ bool constantTimeCompare(const unsigned char* a, const unsigned char* b, size_t 
 // Verify HMAC authentication
 // Returns true if authentication succeeds
 bool verifyAuthentication(const String& nonce, const String& signature) {
+#ifdef SKIP_AUTH
+  return true;
+#endif
   // Parse nonce as unsigned long
   unsigned long requestTimestamp = nonce.toInt();
   if (requestTimestamp == 0 && nonce != "0") {
@@ -397,7 +398,7 @@ void fsmTransition(int deg, unsigned long millis, Command button, Command cmd) {
       // Stay in BAD state - requires manual reset
       Serial.println("FSM: In BAD state - reset required");
 #ifndef UNIT_TEST
-        myservo.detach();
+      myservo.detach();
 #endif
       break;
   }
@@ -405,8 +406,7 @@ void fsmTransition(int deg, unsigned long millis, Command button, Command cmd) {
   fsmState.currentState = nextState;
 }
 
-Request getTopRequest(WiFiClient& client)
-{
+Request getTopRequest(WiFiClient& client) {
   if (!client) return EMPTY;
 
   // Serial.println("new client");
@@ -428,7 +428,7 @@ Request getTopRequest(WiFiClient& client)
         if (currentLine.length() == 0) {
           // // Only process the top request in the buffer
           // client.flush();
-  
+
           if (isOptions) {
             return OPTIONS;
           } else if (isPostLock && verifyAuthentication(nonce, signature)) {
@@ -453,9 +453,9 @@ Request getTopRequest(WiFiClient& client)
           } else if (currentLine.startsWith("GET /status")) {
             isStatus = true;
             // Serial.println("Received GET /status");
-          // } else if (currentLine.startsWith("POST /connect")) {
-          //   isPostConnect = true;
-          //   Serial.println("Received POST /connect");
+            // } else if (currentLine.startsWith("POST /connect")) {
+            //   isPostConnect = true;
+            //   Serial.println("Received POST /connect");
           } else if (currentLine.startsWith("POST /lock")) {
             isPostLock = true;
             // Serial.println("Received LOCK request");
@@ -513,13 +513,14 @@ void respondHTTP(WiFiClient& client, int code, String codeName, String body, Str
   client.println();
 }
 
-void respondRequest(WiFiClient& client, Request req, State st)
-{
+void respondRequest(WiFiClient& client, Request req, State st) {
   if (req == EMPTY) return;
   assert(client);
 
   if (req == OPTIONS) {
-    respondHTTP(client, 204, "No Content", "", "Access-Control-Allow-Headers: Content-Type, X-Nonce, X-Signature\nAccess-Control-Allow-Methods: GET, POST, OPTIONS");
+    respondHTTP(client, 204, "No Content", "",
+                "Access-Control-Allow-Headers: Content-Type, X-Nonce, "
+                "X-Signature\nAccess-Control-Allow-Methods: GET, POST, OPTIONS");
   } else if (req == LOCK_REQ && (st == LOCK || st == BUSY_MOVE)) {
     respondHTTP(client, 200, "OK", stateToString(st), "");
   } else if (req == UNLOCK_REQ && (st == UNLOCK || st == BUSY_MOVE)) {
@@ -537,7 +538,6 @@ void respondRequest(WiFiClient& client, Request req, State st)
   client.stop();
   Serial.println("client disconnected");
 }
-
 
 // Include test files if testing is enabled
 #ifdef UNIT_TEST
@@ -621,7 +621,10 @@ void setup() {
 
 #else
   // The actual remote door lock!
-  // EEPROM.put(EEPROM_TIMESTAMP_ADDR, 0);
+
+#ifdef RESET_TIMESTAMP
+  EEPROM.put(EEPROM_TIMESTAMP_ADDR, 0);
+#endif
 
   // Initialize Arduino LED Matrix FIRST to test it
   matrix.begin();
