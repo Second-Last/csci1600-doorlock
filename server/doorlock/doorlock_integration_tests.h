@@ -760,27 +760,29 @@ bool testFSMCommandResponse() {
  */
 bool testTimeoutToBad() {
   Serial.println("\n========================================");
-  Serial.println("INTEGRATION TEST 8: Watchdog Timeout");
+  Serial.println("INTEGRATION TEST 8: Move Timeout to BAD");
   Serial.println("========================================");
 
+  // Initialize motor and state to UNLOCK
+  fsmState.currentState = UNLOCK;
+  fsmState.lockDeg = LOCK_ANGLE;
+  fsmState.unlockDeg = UNLOCK_ANGLE;
+  fsmState.startTime = 0;
+  fsmState.curCmd = NONE;
+  myservo.attachAndWrite(UNLOCK_ANGLE);
+  delay(2000);
+
+  // Actually run a LOCK request
+  do {
+	delay(100);
+  	fsmTransition(myservo.deg(), millis(), NONE, LOCK_CMD);
+  } while (fsmState.currentState != BUSY_MOVE);
+
   // Start from BUSY_MOVE state with old startTime
-  fsmState.currentState = BUSY_MOVE;
   fsmState.startTime =
       millis() - TOL - 1000;   // Set startTime to 6 seconds ago (exceeds 5s timeout)
-  fsmState.curCmd = LOCK_CMD;  // Set a command for BUSY_MOVE state
 
-  Serial.println("Simulating timeout condition...");
-  Serial.print("Current time: ");
-  Serial.println(millis());
-  Serial.print("Start time: ");
-  Serial.println(fsmState.startTime);
-  Serial.print("Time elapsed: ");
-  Serial.println(millis() - fsmState.startTime);
-
-  // Run FSM transition - should detect timeout
-  int currentDeg = myservo.deg();
-  fsmTransition(currentDeg, millis(), NONE, NONE);
-
+  fsmTransition((LOCK_ANGLE + UNLOCK_ANGLE) / 2, millis(), NONE, NONE);
   bool reachedBadState = (fsmState.currentState == BAD);
 
   Serial.print("Final State: ");
@@ -788,6 +790,11 @@ bool testTimeoutToBad() {
   Serial.print("Reached BAD state: ");
   Serial.println(reachedBadState ? "YES" : "NO");
 
+  if (myservo.attached) {
+    Serial.println("✗ TEST FAILED - Motor should be attached upon entering BAD state");
+	return false;
+  }
+	
   bool testPassed = reachedBadState;
 
   Serial.println("\n--- Test Results ---");
