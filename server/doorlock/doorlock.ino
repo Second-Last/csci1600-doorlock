@@ -289,10 +289,10 @@ bool verifyAuthentication(const String& nonce, const String& signature) {
 }
 
 // Check if at unlock position (open-ended tolerance: only check upper bound)
-bool isAtUnlock(int deg, int tol = ANGLE_TOLERANCE) { return deg <= (fsmState.unlockDeg + tol); }
+bool isAtUnlock(int deg) { return deg <= (fsmState.unlockDeg + ANGLE_TOLERANCE); }
 
 // Check if at lock position (open-ended tolerance: only check lower bound)
-bool isAtLock(int deg, int tol = ANGLE_TOLERANCE) { return deg >= (fsmState.lockDeg - tol); }
+bool isAtLock(int deg) { return deg >= (fsmState.lockDeg - ANGLE_TOLERANCE); }
 
 // FSM Transition Function
 void fsmTransition(int deg, unsigned long millis, Command button, Command cmd) {
@@ -374,18 +374,14 @@ void fsmTransition(int deg, unsigned long millis, Command button, Command cmd) {
         nextState = BAD;
         myservo.detach();
         Serial.println("FSM: BUSY_MOVE -> BAD (timeout)");
-      } else if (fsmState.curCmd == UNLOCK_CMD && isAtUnlock(deg, 0)) {
-        // We should be use a stricter tolerance to determine whether to stop
-        // moving.
+      } else if (fsmState.curCmd == UNLOCK_CMD && isAtUnlock(deg)) {
         nextState = UNLOCK;
         fsmState.curCmd = NONE;
 #ifndef UNIT_TEST
         myservo.detach();
 #endif
         Serial.println("FSM: BUSY_MOVE -> UNLOCK");
-      } else if (fsmState.curCmd == LOCK_CMD && isAtLock(deg, 0)) {
-        // We should be use a stricter tolerance to determine whether to stop
-        // moving.
+      } else if (fsmState.curCmd == LOCK_CMD && isAtLock(deg)) {
         nextState = LOCK;
         fsmState.curCmd = NONE;
 #ifndef UNIT_TEST
