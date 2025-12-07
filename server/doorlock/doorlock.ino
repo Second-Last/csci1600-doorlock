@@ -595,6 +595,10 @@ void setup() {
   Serial.println(myservo.minFeedback);
   Serial.print("maxFeedback: ");
   Serial.println(myservo.maxFeedback);
+  Serial.print("minPoFeedback: ");
+  Serial.println(myservo.minPoFeedback);
+  Serial.print("maxPoFeedback: ");
+  Serial.println(myservo.maxPoFeedback);
   delay(1000);
 
   // Initialize FSM state

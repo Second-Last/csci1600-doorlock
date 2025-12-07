@@ -48,6 +48,10 @@ struct MyServo {
 
   int deg() {
     int feedback = analogReadStable(feedbackPin);
+	// Serial.print("MyServo.deg: feedback=");
+	// Serial.print(feedback);
+	// Serial.print(", attached=");
+	// Serial.println(attached);
     if (attached) {
       return map(feedback, minFeedback, maxFeedback, minDegrees, maxDegrees);
     } else {
