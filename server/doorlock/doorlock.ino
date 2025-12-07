@@ -70,6 +70,7 @@ ArduinoLEDMatrix matrix;
 const int servoPin = 9;
 const int feedbackPin = A0;
 const int transistorPin = 5;
+const int buttonPin = 3;
 
 MyServo myservo(servoPin, feedbackPin, transistorPin);
 
