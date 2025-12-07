@@ -69,7 +69,9 @@ ArduinoLEDMatrix matrix;
 const int servoPin = 9;
 const int feedbackPin = A0;
 const int transistorPin = 5;
-const int buttonPin = 3;
+const int calibrateBtnPin = 3;
+
+volatile bool calibrateBtnPressed = false;
 
 MyServo myservo(servoPin, feedbackPin, transistorPin);
 
@@ -194,6 +196,10 @@ void updateMatrixDisplay() {
       displayText("!!");
       break;
   }
+}
+
+void calibrateBtnIsr(void){
+  calibrateBtnPressed = true;
 }
 
 // Convert hex char to value (0-15)
@@ -590,6 +596,9 @@ void setup() {
   printWifiStatus();
 
   // Hardware setup
+  pinMode(calibrateBtnPin, INPUT_PULLUP)
+  attachInterrupt(digitalPinToInterrupt(calibrateBtnPin), calibrateBtnIsr, RISING);
+
   myservo.init();
   myservo.calibrate(UNLOCK_ANGLE, LOCK_ANGLE);
   Serial.print("minFeedback: ");
