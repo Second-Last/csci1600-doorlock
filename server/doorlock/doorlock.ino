@@ -65,6 +65,8 @@ FSMState fsmState;
 
 ArduinoLEDMatrix matrix;
 
+
+
 // Control and feedback pins
 const int servoPin = 9;
 const int feedbackPin = A0;
@@ -72,6 +74,9 @@ const int transistorPin = 5;
 const int calibrateBtnPin = 3;
 
 volatile bool calibrateBtnPressed = false;
+// // Whether the `calibrateBtnPressed` is seen as true before entering the FSM.
+// // Then, we know we can safely set this to false afterwards.
+// bool calibrateBtnProcessing = false;
 
 MyServo myservo(servoPin, feedbackPin, transistorPin);
 
@@ -302,22 +307,26 @@ bool isAtUnlock(int deg) { return deg <= (fsmState.unlockDeg + ANGLE_TOLERANCE);
 bool isAtLock(int deg) { return deg >= (fsmState.lockDeg - ANGLE_TOLERANCE); }
 
 // FSM Transition Function
-void fsmTransition(int deg, unsigned long millis, Command button, Command cmd) {
+void fsmTransition(int deg, unsigned long millis, bool button, Command cmd) {
   State nextState = fsmState.currentState;
 
   switch (fsmState.currentState) {
     case CALIBRATE_LOCK:
-      // Automatically advance to next calibration state
-      fsmState.lockDeg = deg;
-      nextState = CALIBRATE_UNLOCK;
-      Serial.println("FSM: CALIBRATE_LOCK -> CALIBRATE_UNLOCK");
+      if (button) {
+        fsmState.lockDeg = deg;
+        nextState = CALIBRATE_UNLOCK;
+        Serial.print("FSM: CALIBRATE_LOCK -> CALIBRATE_UNLOCK with deg=");
+        Serial.println(deg);
+      }
       break;
 
     case CALIBRATE_UNLOCK:
-      // Automatically advance to UNLOCK state
-      fsmState.unlockDeg = deg;
-      nextState = UNLOCK;
-      Serial.println("FSM: CALIBRATE_UNLOCK -> UNLOCK");
+      if (button) {
+        fsmState.unlockDeg = deg;
+        nextState = UNLOCK;
+        Serial.print("FSM: CALIBRATE_UNLOCK -> UNLOCK with deg=");
+        Serial.println(deg);
+      }
       break;
 
     case UNLOCK:
@@ -431,7 +440,7 @@ Request getTopRequest(WiFiClient& client) {
         // End of the headers of this request, we ignore request bodies.
         if (currentLine.length() == 0) {
           // // Only process the top request in the buffer
-          // client.flush();
+          client.flush();
 
           if (isOptions) {
             return OPTIONS;
@@ -595,10 +604,6 @@ void setup() {
   server.begin();
   printWifiStatus();
 
-  // Hardware setup
-  pinMode(calibrateBtnPin, INPUT_PULLUP)
-  attachInterrupt(digitalPinToInterrupt(calibrateBtnPin), calibrateBtnIsr, RISING);
-
   myservo.init();
   myservo.calibrate(UNLOCK_ANGLE, LOCK_ANGLE);
   Serial.print("minFeedback: ");
@@ -675,6 +680,10 @@ void setup() {
   server.begin();
   printWifiStatus();
 
+  // Hardware setup
+  pinMode(calibrateBtnPin, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(calibrateBtnPin), calibrateBtnIsr, FALLING);
+
   myservo.init();
   myservo.calibrate(UNLOCK_ANGLE, LOCK_ANGLE);
   Serial.print("minFeedback: ");
@@ -702,22 +711,23 @@ void setup() {
   fsmState.curCmd = NONE;
 
   Serial.println("FSM initialized in CALIBRATE_LOCK state");
-  Serial.println("Hardcoded angles - Lock: 110, Unlock: 40");
 
   // Display initial state
   updateMatrixDisplay();
 
-  // Run through calibration states. Manually rotate the motor to simulate user
-  // calibration.
-  // TODO: remove once we implement power cutoff for the servo to release
-  // control of the motor
-  fsmTransition(LOCK_ANGLE, millis(), NONE, NONE);
-  fsmTransition(UNLOCK_ANGLE, millis(), NONE, NONE);
-  myservo.attachAndWrite(UNLOCK_ANGLE);
-  delay(2000);
+  // Serial.println("Hardcoded angles - Lock: 110, Unlock: 40");
+  // // Run through calibration states. Manually rotate the motor to simulate user
+  // // calibration.
+  // // TODO: remove once we implement power cutoff for the servo to release
+  // // control of the motor
+  // fsmTransition(LOCK_ANGLE, millis(), true, NONE);
+  // fsmTransition(UNLOCK_ANGLE, millis(), true, NONE);
+  // myservo.attachAndWrite(UNLOCK_ANGLE);
+  // delay(2000);
   myservo.detach();
 
-  Serial.println("FSM ready - now in UNLOCK state");
+  Serial.print("FSM ready - now in ");
+  Serial.println(stateToString(fsmState.currentState));
 
   WDT.begin(wdtInterval);
 #endif
@@ -736,8 +746,14 @@ void loop() {
   // Get current servo position
   int currentDeg = myservo.deg();
 
+  bool btnPressed = false;
+  if (calibrateBtnPressed) {
+    btnPressed = true; 
+    calibrateBtnPressed = false;
+  }
+
   // Run FSM transition
-  fsmTransition(currentDeg, millis(), NONE, cmd);
+  fsmTransition(currentDeg, millis(), btnPressed, cmd);
 
   // Respond to request, if any
   respondRequest(client, req, fsmState.currentState);
