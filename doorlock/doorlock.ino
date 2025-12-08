@@ -97,7 +97,15 @@ const int EEPROM_TIMESTAMP_ADDR = 0;
 // Replay protection window (seconds)
 const unsigned long REPLAY_WINDOW = 5;
 
-// Function to return the state as a string
+/**
+ * This function converts an inputted value of type State into its String equivalent.
+ * 
+ * Input:
+ *  - st (State) : Represents the current state that this function will convert to its String equivalent
+ * 
+ * Output: String value that represents the current state
+ * 
+ */
 String stateToString(State st) {
   switch (st) {
     case CALIBRATE_LOCK:
@@ -117,7 +125,15 @@ String stateToString(State st) {
   }
 }
 
-// Function to display text on LED matrix
+/**
+ * This function is a helper function that physically displays the current status on the Arduino's LED matrix.
+ * 
+ * Input:
+ *  - text (char*) : String representing the status we aim to display on the LED matrix
+ * 
+ * Output: None
+ * 
+ */
 void displayText(const char* text) {
   matrix.beginDraw();
   matrix.stroke(0xFFFFFFFF);
@@ -128,7 +144,16 @@ void displayText(const char* text) {
   matrix.endDraw();
 }
 
-// Prints MAC address
+/**
+ * This function prints the MAC address, which is necessary for connecting the Arduino to the "Brown-Guest"
+ * wifi
+ * 
+ * Input:
+ *  - mac (byte array) : Byte array representing the MAC address, which will be printed out
+ * 
+ * Output: None
+ * 
+ */
 void printMacAddress(byte mac[]) {
   for (int i = 0; i < 6; i++) {
     if (i > 0) {
@@ -143,6 +168,15 @@ void printMacAddress(byte mac[]) {
 }
 
 // Function to print WiFi status
+/**
+ * This function prints the current WiFi metadata, including
+ *  - Arduino IP Address
+ *  - Arduino MAC address
+ * 
+ * Input: None
+ * 
+ * Output: None
+ */
 void printWifiStatus() {
   // print the SSID of the network you're attached to:
   Serial.print("SSID: ");
@@ -169,7 +203,13 @@ void printWifiStatus() {
   Serial.println(ip);
 }
 
-// Function to update LED matrix based on FSM state
+/**
+ * This function updates the Arduino's LED matrix based on the FSM state. It is called in fsmTransition()
+ * to ensure the Arduino always displays the correct state
+ * 
+ * Input: None
+ * Output: None
+ */
 void updateMatrixDisplay() {
   // Only update if state has changed
   if (fsmState.currentState == lastDisplayedState) {
@@ -203,11 +243,26 @@ void updateMatrixDisplay() {
   }
 }
 
+/**
+ * This function serves as the ISR that is called when the button is pressed. It updates the boolean
+ * `calibrateBtnPressed` to indicate that the button to calibrate the lock and unlock states have been pressed
+ * 
+ * Input: None
+ * Output: None
+ * 
+ */
 void calibrateBtnIsr(void){
   calibrateBtnPressed = true;
 }
 
-// Convert hex char to value (0-15)
+/**
+ * This is a helper function to convert a hexadecimal value into a decimal value
+ * 
+ * Input:
+ *  - c (char) : Character representing some digit in hexadecimal
+ * 
+ * Output: Integer (int) value equivalent to the inputted hexadecimal value, but in decimal format
+ */
 int hexCharToValue(char c) {
   if (c >= '0' && c <= '9') return c - '0';
   if (c >= 'a' && c <= 'f') return c - 'a' + 10;
@@ -500,6 +555,9 @@ Request getTopRequest(WiFiClient& client) {
   return UNRECOGNIZED;
 }
 
+/**
+ * 
+ */
 void respondHTTP(WiFiClient& client, int code, String codeName, String body, String extraHeaders) {
   // Line 1
   client.print("HTTP/1.1 ");
@@ -526,6 +584,9 @@ void respondHTTP(WiFiClient& client, int code, String codeName, String body, Str
   client.println();
 }
 
+/**
+ * 
+ */
 void respondRequest(WiFiClient& client, Request req, State st) {
   if (req == EMPTY) return;
   assert(client);
@@ -561,6 +622,17 @@ void respondRequest(WiFiClient& client, Request req, State st) {
 #include "doorlock_integration_tests.h"
 #endif
 
+/**
+ * This is the `setup()` function that the Arduino will always run once code is uploaded. It is responsible for:
+ *  - Connecting the Arduino to WiFi to receive requests from clients
+ *  - Initializing the FSM state
+ *  - Setting up the servo motor
+ *  - Attaching interrupts to the button hardware
+ * 
+ * Input: None
+ * Output: None
+ * 
+ */
 void setup() {
   Serial.begin(9600);
   while (!Serial);
@@ -733,6 +805,16 @@ void setup() {
 #endif
 }
 
+/**
+ * This `loop()` function is executed by the Arduino every few milliseconds. It is sresponsible for:
+ *  - Processing any requests sent by clients to the current Arduino server
+ *  - Calling fsmTransition() to update the current FSM state
+ *  - Petting the watchdog to prevent Arduino reset
+ * 
+ * Input: None
+ * Output: None 
+ * 
+ */
 void loop() {
 #ifndef TESTING
   // Parse HTTP request (if any) and obtain the corresponding command.
