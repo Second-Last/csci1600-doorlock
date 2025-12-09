@@ -54,8 +54,8 @@ struct FSMState {
 const unsigned long TOL = 5000;  // 5 second timeout for moves
 
 // Hardcoded lock positions
-const int LOCK_ANGLE = 110;
-const int UNLOCK_ANGLE = 40;
+const int MAX_LOCK_ANGLE = 110;
+const int MIN_UNLOCK_ANGLE = 40;
 
 // Angle tolerance for position checking (degrees)
 const int ANGLE_TOLERANCE = 5;
@@ -74,9 +74,6 @@ const int transistorPin = 5;
 const int calibrateBtnPin = 3;
 
 volatile bool calibrateBtnPressed = false;
-// // Whether the `calibrateBtnPressed` is seen as true before entering the FSM.
-// // Then, we know we can safely set this to false afterwards.
-// bool calibrateBtnProcessing = false;
 
 MyServo myservo(servoPin, feedbackPin, transistorPin);
 
@@ -133,6 +130,7 @@ String stateToString(State st) {
  * 
  * Output: None
  * 
+ * Side effects: draws the given text on the Arduino's LED matrix.
  */
 void displayText(const char* text) {
   matrix.beginDraw();
@@ -153,6 +151,7 @@ void displayText(const char* text) {
  * 
  * Output: None
  * 
+ * Side effect: prints the MAC address to the serial console.
  */
 void printMacAddress(byte mac[]) {
   for (int i = 0; i < 6; i++) {
@@ -167,7 +166,6 @@ void printMacAddress(byte mac[]) {
   Serial.println();
 }
 
-// Function to print WiFi status
 /**
  * This function prints the current WiFi metadata, including
  *  - Arduino IP Address
@@ -176,6 +174,8 @@ void printMacAddress(byte mac[]) {
  * Input: None
  * 
  * Output: None
+ *
+ * Side effects: prints the aforementioned WiFI metadata to the serial console.
  */
 void printWifiStatus() {
   // print the SSID of the network you're attached to:
@@ -198,17 +198,19 @@ void printWifiStatus() {
   Serial.print("signal strength (RSSI):");
   Serial.print(rssi);
   Serial.println(" dBm");
-  // print where to go in a browser:
-  Serial.print("To see this page in action, open a browser to http://");
-  Serial.println(ip);
 }
 
 /**
- * This function updates the Arduino's LED matrix based on the FSM state. It is called in fsmTransition()
- * to ensure the Arduino always displays the correct state
+ * This function updates the Arduino's LED matrix based on the FSM state. It is called after fsmTransition()
+ * to ensure the Arduino always displays the correct state. Note that it only
+ * writes when the FSM state has changed compared to the last displayed state.
  * 
  * Input: None
  * Output: None
+ *
+ * Side effect: updates the Arduino's LED matrix to display an abbreviation of
+ * the current FSM state only if the current state is different from the last
+ * state that was displayed.
  */
 void updateMatrixDisplay() {
   // Only update if state has changed
@@ -250,6 +252,7 @@ void updateMatrixDisplay() {
  * Input: None
  * Output: None
  * 
+ * Side effects: sets `calibrateBtnPressed` as true.
  */
 void calibrateBtnIsr(void){
   calibrateBtnPressed = true;
@@ -316,11 +319,21 @@ void computeHMAC(const String& message, const char* key, unsigned char* output) 
   br_hmac_out(&hmacCtx, output);
 }
 
-// Constant-time comparison to prevent timing attacks
 /**
- * This helper function takes in two String objects, corresponding to the received message and the expected message
- * after hashing, and determines 
+ * This helper function checks whether two strings are equal (have equal content)
+ * using cosntant-time comparison. In reality no one is going to execute timing
+ * attacks on our Arduino, but it's not like this function will make our code
+ * worse so why not!
+ *
+ * Assumes the two strings being compared have the same length.
  * 
+ * Input:
+ *  - a (unsigned char*): a string
+ *  - b (unsigned char*): a string
+ *  - len (size_t): length of `a` and `b`. `a` and `b` are assumed to have the
+ *  same length.
+ *
+ * Output: bool value indicating whether the two strings are equal.
  */
 bool constantTimeCompare(const unsigned char* a, const unsigned char* b, size_t len) {
   unsigned char result = 0;
@@ -330,8 +343,24 @@ bool constantTimeCompare(const unsigned char* a, const unsigned char* b, size_t 
   return result == 0;
 }
 
-// Verify HMAC authentication
-// Returns true if authentication succeeds
+/**
+ * This function ensure that the signature of the nonce was signed using the
+ * secret key using HMAC-SHA256, and that the nonce is at least 5 seconds
+ * after the last successful request's nonce.
+ *
+ * Note that by defining the `SKIP_AUTH` macro, this function always returns
+   * true (i.e. skips authentication).
+ *
+ * Input:
+ *  - nonce (const String&): the nonce (unix timestamp) formatted as a string
+ *  - signature (const String&): the signature of the nonce in hex.
+ *
+ * Output: bool value that indicates whether the authentication was successful.
+ *
+ * Side effect:
+ * If the authentication succeeds, updates the last nonce stored EEPROM to be
+ * the current nonce.
+ */
 bool verifyAuthentication(const String& nonce, const String& signature) {
 #ifdef SKIP_AUTH
   return true;
@@ -409,6 +438,9 @@ bool isAtLock(int deg) { return deg >= (fsmState.lockDeg - ANGLE_TOLERANCE); }
  * The fsmTransition() function is the key function responsible for handling the finite-state machine logic.
  * It takes in all the expected inputs and, with the help of the environment variables, determines the next state
  * that the FSM should transition to.
+ *
+ * The annotatinos for transitions are the `Serial.println`s so no further
+ * commenting exists for transitions; the prints should be obvious enough.
  * 
  * Input:
  *  - deg (int) : Integer value representing the current motor position in degrees
@@ -418,6 +450,8 @@ bool isAtLock(int deg) { return deg >= (fsmState.lockDeg - ANGLE_TOLERANCE); }
  * 
  * Output: None
  * 
+ * Side effect:
+ * Update the global `fsmState` with the updated FSM variables and the next state that the FSM should transition to.
  */
 void fsmTransition(int deg, unsigned long millis, bool button, Command cmd) {
   State nextState = fsmState.currentState;
@@ -533,7 +567,7 @@ void fsmTransition(int deg, unsigned long millis, bool button, Command cmd) {
 
 /**
  * This function is simply responsible for handling all WiFi requests sent by the client to the current Arduino server.
- * Evidently, it parses the request, determines the type of request (GET, POST, OPTIONS, etc.), and sets necessary environment variables
+ * Evidently, it parses the request, determines the type of request (GET, POST, OPTIONS, etc.), and sets necessary variables
  * to determine what to send back to the client.
  * 
  * Input:
@@ -541,6 +575,7 @@ void fsmTransition(int deg, unsigned long millis, bool button, Command cmd) {
  * 
  * Output: Request object that represents the current type of request sent. `Request` is an enum defined with set states 
  * 
+ * Side effect: clears the buffer in the `client`.
  */
 Request getTopRequest(WiFiClient& client) {
   if (!client) return EMPTY;
@@ -562,7 +597,7 @@ Request getTopRequest(WiFiClient& client) {
       if (c == '\n') {
         // End of the headers of this request, we ignore request bodies.
         if (currentLine.length() == 0) {
-          // // Only process the top request in the buffer
+          // Only process the top request in the buffer
           client.flush();
 
           if (isOptions) {
@@ -628,11 +663,17 @@ Request getTopRequest(WiFiClient& client) {
  * a previous request. It is a general helper function that can be used for any type of request.
  * 
  * Input:
- *  - client (WiFiClient&) : Reference to a WiFiClient, which in this case, represents the Arduino server; is responsible
- *                          for receiving requests and sending responses back
+ *  - client (WiFiClient&) : Reference to a WiFiClient that corresponds to a client that sent a request to the server;
+ *                           is responsible for receiving requests and sending responses back.
  *  - code (int) : represents the status code that should be sent back to the client
  *  - body (String) : String representing the body that should be sent back to the client
  *  - extraHeaders (String) : String representing header content that will also be sent back to the client in the same response.
+ *
+ * Output: None
+ *
+ * Side effect:
+ * Append the `client`'s (send) buffer with the header and contents of the HTTP
+ * response.
  */
 void respondHTTP(WiFiClient& client, int code, String codeName, String body, String extraHeaders) {
   // Line 1
@@ -641,10 +682,10 @@ void respondHTTP(WiFiClient& client, int code, String codeName, String body, Str
   client.print(" ");
   client.println(codeName);
 
-  // Line 3
+  // Line 2
   client.println("Content-type:text/plain");
 
-  // Line 2
+  // Line 3
   client.println("Access-Control-Allow-Origin: *");
 
   // Extra headers:
@@ -661,7 +702,18 @@ void respondHTTP(WiFiClient& client, int code, String codeName, String body, Str
 }
 
 /**
- * 
+ * Responds to the HTTP client's request based on the current
+ *
+ * Input:
+ *  - client (WifiClient&): the client that this request came from.
+ *  - req (Request): the type of the client's request.
+ *  - st (State): the current state of the FSM.
+ *
+ * Output: None
+ *
+ * Side effects:
+ * Sends a HTTP response back to the client depending on the request and the
+ * current FSM's state.
  */
 void respondRequest(WiFiClient& client, Request req, State st) {
   if (req == EMPTY) return;
@@ -753,7 +805,7 @@ void setup() {
   printWifiStatus();
 
   myservo.init();
-  myservo.calibrate(UNLOCK_ANGLE, LOCK_ANGLE);
+  myservo.calibrate(MIN_UNLOCK_ANGLE, MAX_LOCK_ANGLE);
   Serial.print("minFeedback: ");
   Serial.println(myservo.minFeedback);
   Serial.print("maxFeedback: ");
@@ -766,8 +818,8 @@ void setup() {
 
   // Initialize FSM state
   fsmState.currentState = UNLOCK;
-  fsmState.lockDeg = LOCK_ANGLE;
-  fsmState.unlockDeg = UNLOCK_ANGLE;
+  fsmState.lockDeg = MAX_LOCK_ANGLE;
+  fsmState.unlockDeg = MIN_UNLOCK_ANGLE;
   fsmState.startTime = 0;
   fsmState.curCmd = NONE;
 
@@ -832,8 +884,9 @@ void setup() {
   pinMode(calibrateBtnPin, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(calibrateBtnPin), calibrateBtnIsr, FALLING);
 
+  // Servo self-calibration and initialization 
   myservo.init();
-  myservo.calibrate(UNLOCK_ANGLE, LOCK_ANGLE);
+  myservo.calibrate(MIN_UNLOCK_ANGLE, MAX_LOCK_ANGLE);
   Serial.print("minFeedback: ");
   Serial.println(myservo.minFeedback);
   Serial.print("maxFeedback: ");
@@ -842,7 +895,6 @@ void setup() {
   Serial.println(myservo.minPoFeedback);
   Serial.print("maxPoFeedback: ");
   Serial.println(myservo.maxPoFeedback);
-  delay(1000);
 
   // Initialize EEPROM (virtualEEPROM for Uno R4)
   // No explicit begin() needed for Uno R4
@@ -853,8 +905,8 @@ void setup() {
 
   // Initialize FSM state
   fsmState.currentState = CALIBRATE_LOCK;
-  fsmState.lockDeg = LOCK_ANGLE;
-  fsmState.unlockDeg = UNLOCK_ANGLE;
+  fsmState.lockDeg = MAX_LOCK_ANGLE;
+  fsmState.unlockDeg = MIN_UNLOCK_ANGLE;
   fsmState.startTime = 0;
   fsmState.curCmd = NONE;
 
@@ -862,17 +914,6 @@ void setup() {
 
   // Display initial state
   updateMatrixDisplay();
-
-  // Serial.println("Hardcoded angles - Lock: 110, Unlock: 40");
-  // // Run through calibration states. Manually rotate the motor to simulate user
-  // // calibration.
-  // // TODO: remove once we implement power cutoff for the servo to release
-  // // control of the motor
-  // fsmTransition(LOCK_ANGLE, millis(), true, NONE);
-  // fsmTransition(UNLOCK_ANGLE, millis(), true, NONE);
-  // myservo.attachAndWrite(UNLOCK_ANGLE);
-  // delay(2000);
-  myservo.detach();
 
   Serial.print("FSM ready - now in ");
   Serial.println(stateToString(fsmState.currentState));
@@ -882,7 +923,7 @@ void setup() {
 }
 
 /**
- * This `loop()` function is executed by the Arduino every few milliseconds. It is sresponsible for:
+ * This `loop()` function is executed by the Arduino at most every 100 milliseconds. It is responsible for:
  *  - Processing any requests sent by clients to the current Arduino server
  *  - Calling fsmTransition() to update the current FSM state
  *  - Petting the watchdog to prevent Arduino reset
@@ -905,10 +946,12 @@ void loop() {
   int currentDeg = myservo.deg();
 
   bool btnPressed = false;
+  noInterrupts();
   if (calibrateBtnPressed) {
     btnPressed = true; 
     calibrateBtnPressed = false;
   }
+  interrupts();
 
   // Run FSM transition
   fsmTransition(currentDeg, millis(), btnPressed, cmd);

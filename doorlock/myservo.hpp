@@ -4,6 +4,15 @@
 #include <Servo.h>
 #include "utils.h"
 
+/**
+ * This is a wrapper around the official `Servo` class that provides additional
+ * functionality to:
+ *
+ * - measure the current position of the motor, regardless of whether the motor
+ *   is powered or not.
+ * - calibrate the lock so that the position reading is as precise as possible.
+ * - cut the power to the servo motor using a BJT transistor.
+ */
 struct MyServo {
   int servoPin = 9;
   int feedbackPin = A0;
@@ -20,8 +29,10 @@ struct MyServo {
   MyServo(int servoPin, int feedbackPin, int transistorPin)
       : servoPin(servoPin), feedbackPin(feedbackPin), transistorPin(transistorPin) {}
 
+  // Initialize the necessary hardware.
   void init() { pinMode(transistorPin, OUTPUT); }
 
+  // Attach to the servo.
   void attach() {
     if (attached) return;
     digitalWrite(transistorPin, HIGH);
@@ -29,16 +40,22 @@ struct MyServo {
     attached = true;
   }
 
+  // Send a request to the servo to turn to the given degree. Assumes that the
+  // servo is already attached. Note that the servo cannot guarantee it would've
+  // turned to the requested position when this method returns.
   void write(int deg) {
     assert(attached);
     servo.write(deg);
   }
 
+  // Same as `write` but attaches the servo if it has not been attached.
   void attachAndWrite(int deg) {
     attach();
     write(deg);
   }
 
+  // Detach the servo by cutting its power supply. This means the motor can no
+  // longer control itself.
   void detach() {
     if (!attached) return;
     servo.detach();
@@ -46,12 +63,9 @@ struct MyServo {
     attached = false;
   }
 
+  // Return the current position of the motor.
   int deg() {
     int feedback = analogReadStable(feedbackPin);
-	// Serial.print("MyServo.deg: feedback=");
-	// Serial.print(feedback);
-	// Serial.print(", attached=");
-	// Serial.println(attached);
     if (attached) {
       return map(feedback, minFeedback, maxFeedback, minDegrees, maxDegrees);
     } else {
@@ -59,10 +73,8 @@ struct MyServo {
     }
   }
 
-  /*
-    This function establishes the feedback values for 2 positions of the servo.
-    With this information, we can interpolate feedback values for intermediate positions
-  */
+  // Establish the feedback values for 2 positions of the servo.
+  // With this information, we can interpolate feedback values for intermediate positions
   void calibrate(int minPos, int maxPos) {
 	Serial.print("Calibrating with minPos=");
 	Serial.print(minPos);
