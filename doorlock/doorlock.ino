@@ -405,7 +405,20 @@ bool isAtUnlock(int deg) { return deg <= (fsmState.unlockDeg + ANGLE_TOLERANCE);
  */
 bool isAtLock(int deg) { return deg >= (fsmState.lockDeg - ANGLE_TOLERANCE); }
 
-
+/**
+ * The fsmTransition() function is the key function responsible for handling the finite-state machine logic.
+ * It takes in all the expected inputs and, with the help of the environment variables, determines the next state
+ * that the FSM should transition to.
+ * 
+ * Input:
+ *  - deg (int) : Integer value representing the current motor position in degrees
+ *  - millis (unsigned long) : long value indicating the current time, in milliseconds
+ *  - button (bool) : bool value indicating if the calibrate button has been pressed or not
+ *  - cmd (Command) : Command object representing the command sent by the user (if one has been sent)
+ * 
+ * Output: None
+ * 
+ */
 void fsmTransition(int deg, unsigned long millis, bool button, Command cmd) {
   State nextState = fsmState.currentState;
 
@@ -518,6 +531,17 @@ void fsmTransition(int deg, unsigned long millis, bool button, Command cmd) {
   fsmState.currentState = nextState;
 }
 
+/**
+ * This function is simply responsible for handling all WiFi requests sent by the client to the current Arduino server.
+ * Evidently, it parses the request, determines the type of request (GET, POST, OPTIONS, etc.), and sets necessary environment variables
+ * to determine what to send back to the client.
+ * 
+ * Input:
+ *  - client (WiFiClient&) : Reference to a WiFiClient, which represents the Arduino server in our application
+ * 
+ * Output: Request object that represents the current type of request sent. `Request` is an enum defined with set states 
+ * 
+ */
 Request getTopRequest(WiFiClient& client) {
   if (!client) return EMPTY;
 
@@ -600,7 +624,15 @@ Request getTopRequest(WiFiClient& client) {
 }
 
 /**
+ * This function is responsible for generating the proper response to send back to the server based on the results of 
+ * a previous request. It is a general helper function that can be used for any type of request.
  * 
+ * Input:
+ *  - client (WiFiClient&) : Reference to a WiFiClient, which in this case, represents the Arduino server; is responsible
+ *                          for receiving requests and sending responses back
+ *  - code (int) : represents the status code that should be sent back to the client
+ *  - body (String) : String representing the body that should be sent back to the client
+ *  - extraHeaders (String) : String representing header content that will also be sent back to the client in the same response.
  */
 void respondHTTP(WiFiClient& client, int code, String codeName, String body, String extraHeaders) {
   // Line 1
