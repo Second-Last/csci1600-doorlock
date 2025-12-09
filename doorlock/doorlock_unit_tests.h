@@ -19,7 +19,7 @@ typedef struct {
   unsigned long clock;   // Current time in milliseconds
 } state_inputs;
 
-// Note: Unit tests use constants from doorlock.ino (TOL, LOCK_ANGLE, UNLOCK_ANGLE, ANGLE_TOLERANCE)
+// Note: Unit tests use constants from doorlock.ino (TOL, MAX_LOCK_ANGLE, MIN_UNLOCK_ANGLE, ANGLE_TOLERANCE)
 
 // Note: Unit tests use the global fsmState from doorlock.ino
 // No need for separate test state since we save/restore in testTransition()
@@ -70,8 +70,8 @@ const char* unitTestCommandToString(Command c) {
  */
 void resetTestState() {
   fsmState.currentState = UNLOCK;  // Start from UNLOCK for most tests
-  fsmState.lockDeg = LOCK_ANGLE;
-  fsmState.unlockDeg = UNLOCK_ANGLE;
+  fsmState.lockDeg = MAX_LOCK_ANGLE;
+  fsmState.unlockDeg = MIN_UNLOCK_ANGLE;
   fsmState.startTime = 0;
   fsmState.curCmd = NONE;
 }
