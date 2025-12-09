@@ -270,8 +270,18 @@ int hexCharToValue(char c) {
   return -1;
 }
 
-// Convert hex string to byte array
-// Returns true on success, false on invalid hex
+/**
+ * This helper function takes in a String that represents a hexadecimal and attempts to 
+ * convert it to a byte array. It returns a boolean indicating if it can be converted or not.
+ * 
+ * Input:
+ *  - hex (String&) : Reference to a String value that corresponds to some hexadecimal value
+ *  - output (char*) : String value that will eventually stored the converted hexadecimal (now a byte array)
+ *  - outputLen (size_t) : size_t indicating the expected size of the `output` variables
+ * 
+ * Output: bool indicating if the conversion was successful
+ * 
+ */
 bool hexToBytes(const String& hex, unsigned char* output, size_t outputLen) {
   if (hex.length() != outputLen * 2) return false;
 
@@ -284,7 +294,18 @@ bool hexToBytes(const String& hex, unsigned char* output, size_t outputLen) {
   return true;
 }
 
-// Compute HMAC-SHA256 signature
+/**
+ * This is a helper function responsible for computing the HMAC value of a message given the message contant
+ * and a key for hashing. HMAC is a hash function used to encrypt a message with a shared private key.
+ * 
+ * Input:
+ *  - message (String&) : Reference to a String that corresponds to the message we hope to hash
+ *  - key (char*) : String value representing the private key used to hash the message via HMAC
+ *  - output (char*) : String where the output of the hashing should be stored
+ * 
+ * Output: None
+ * 
+ */
 void computeHMAC(const String& message, const char* key, unsigned char* output) {
   br_hmac_key_context keyCtx;
   br_hmac_key_init(&keyCtx, &br_sha256_vtable, key, strlen(key));
@@ -296,6 +317,11 @@ void computeHMAC(const String& message, const char* key, unsigned char* output) 
 }
 
 // Constant-time comparison to prevent timing attacks
+/**
+ * This helper function takes in two String objects, corresponding to the received message and the expected message
+ * after hashing, and determines 
+ * 
+ */
 bool constantTimeCompare(const unsigned char* a, const unsigned char* b, size_t len) {
   unsigned char result = 0;
   for (size_t i = 0; i < len; i++) {
@@ -355,13 +381,31 @@ bool verifyAuthentication(const String& nonce, const String& signature) {
   return true;
 }
 
-// Check if at unlock position (open-ended tolerance: only check upper bound)
+/**
+ * This function checks if the servo motor is currently in the UNLOCKED state. It takes the current degree and compares
+ * it to the expected unlock degree, with a bit of tolerance.
+ * 
+ * Input:
+ *  - deg (int) : Integer representing the current degree of the motor
+ * 
+ * Output: Bool value indicating if the current motor is at the UNLOCK position
+ * 
+ */
 bool isAtUnlock(int deg) { return deg <= (fsmState.unlockDeg + ANGLE_TOLERANCE); }
 
-// Check if at lock position (open-ended tolerance: only check lower bound)
+/**
+ * This function checks if the servo motor is currently in the LOCKED state. It takes the current degree and compares
+ * it to the expected lock degree, with a bit of tolerance.
+ * 
+ * Input:
+ *  - deg (int) : Integer representing the current degree of the motor
+ * 
+ * Output: Bool value indicating if the current motor is at the LOCK position
+ * 
+ */
 bool isAtLock(int deg) { return deg >= (fsmState.lockDeg - ANGLE_TOLERANCE); }
 
-// FSM Transition Function
+
 void fsmTransition(int deg, unsigned long millis, bool button, Command cmd) {
   State nextState = fsmState.currentState;
 
