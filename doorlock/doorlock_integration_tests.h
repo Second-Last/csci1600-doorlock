@@ -48,7 +48,7 @@ void processServerRequest() {
   int currentDeg = myservo.deg();
 
   // Run FSM transition
-  fsmTransition(currentDeg, millis(), NONE, cmd);
+  fsmTransition(currentDeg, millis(), false, cmd);
 
   // Respond to request, if any
   respondRequest(client, req, fsmState.currentState);
@@ -281,17 +281,17 @@ bool testHTTPLockToUnlock() {
 
   // Initialize FSM to LOCK state
   fsmState.currentState = LOCK;
-  fsmState.lockDeg = LOCK_ANGLE;
-  fsmState.unlockDeg = UNLOCK_ANGLE;
+  fsmState.lockDeg = MAX_LOCK_ANGLE;
+  fsmState.unlockDeg = MIN_UNLOCK_ANGLE;
   fsmState.startTime = 0;
   fsmState.curCmd = NONE;
-  myservo.attachAndWrite(LOCK_ANGLE);
+  myservo.attachAndWrite(MAX_LOCK_ANGLE);
   delay(2000);  // Wait for motor to reach lock position
 
   // Ensure FSM state matches physical position by running a transition
   // This ensures myservo.deg() and FSM state are in sync
   int currentDeg = myservo.deg();
-  fsmTransition(currentDeg, millis(), NONE, NONE);
+  fsmTransition(currentDeg, millis(), false, NONE);
 
   Serial.print("Starting from LOCK state, current position: ");
   Serial.println(currentDeg);
@@ -361,17 +361,17 @@ bool testHTTPUnlockToLock() {
 
   // Initialize FSM to UNLOCK state
   fsmState.currentState = UNLOCK;
-  fsmState.lockDeg = LOCK_ANGLE;
-  fsmState.unlockDeg = UNLOCK_ANGLE;
+  fsmState.lockDeg = MAX_LOCK_ANGLE;
+  fsmState.unlockDeg = MIN_UNLOCK_ANGLE;
   fsmState.startTime = 0;
   fsmState.curCmd = NONE;
-  myservo.attachAndWrite(UNLOCK_ANGLE);
+  myservo.attachAndWrite(MIN_UNLOCK_ANGLE);
   delay(2000);  // Wait for motor to reach unlock position
 
   // Ensure FSM state matches physical position by running a transition
   // This ensures myservo.deg() and FSM state are in sync
   int currentDeg = myservo.deg();
-  fsmTransition(currentDeg, millis(), NONE, NONE);
+  fsmTransition(currentDeg, millis(), false, NONE);
 
   Serial.print("Starting from UNLOCK state, current position: ");
   Serial.println(currentDeg);
@@ -558,10 +558,10 @@ bool testMotorWithInterference() {
   // Start from UNLOCK state
   fsmState.currentState = UNLOCK;
   fsmState.curCmd = NONE;
-  myservo.attachAndWrite(UNLOCK_ANGLE);
+  myservo.attachAndWrite(MIN_UNLOCK_ANGLE);
   delay(2000);
 
-  int manualTurnDeg = (LOCK_ANGLE + UNLOCK_ANGLE) / 2;
+  int manualTurnDeg = (MAX_LOCK_ANGLE + MIN_UNLOCK_ANGLE) / 2;
   Serial.print("Simulate manual turning to ");
   Serial.println(manualTurnDeg);
   myservo.attachAndWrite(manualTurnDeg);
@@ -571,7 +571,7 @@ bool testMotorWithInterference() {
 
   // Check if manual rotation was detected (should enter BUSY_WAIT from UNLOCK)
   int currentDeg = myservo.deg();
-  fsmTransition(currentDeg, millis(), NONE, NONE);
+  fsmTransition(currentDeg, millis(), false, NONE);
 
   Serial.print("State after manual rotation: ");
   Serial.println(stateToString(fsmState.currentState));
@@ -585,7 +585,10 @@ bool testMotorWithInterference() {
 
     // Now manually rotate to LOCK position and verify system recognizes it
     Serial.println("Step 3: Manually rotate to LOCK position...");
-    delay(3000);
+    myservo.attachAndWrite(MAX_LOCK_ANGLE);
+	delay(2000);
+	myservo.detach();
+	delay(500);
 
     currentDeg = myservo.deg();
     fsmTransition(currentDeg, millis(), NONE, NONE);
@@ -595,8 +598,7 @@ bool testMotorWithInterference() {
   }
 
   // Verify BUSY_WAIT was reached and final state is valid
-  bool finalStateValid = (fsmState.currentState == LOCK || fsmState.currentState == UNLOCK ||
-                          fsmState.currentState == BUSY_WAIT);
+  bool finalStateValid = enteredBusyWait && fsmState.currentState == LOCK;
 
   Serial.println("\n--- Test Results ---");
   Serial.print("Entered BUSY_WAIT: ");
@@ -632,7 +634,7 @@ bool testFSMPositionOutput() {
 
   // Test LOCK position
   Serial.println("Testing LOCK position...");
-  myservo.attachAndWrite(LOCK_ANGLE);
+  myservo.attachAndWrite(MAX_LOCK_ANGLE);
   delay(2000);
 
   int lockDeg = -1;
@@ -644,7 +646,7 @@ bool testFSMPositionOutput() {
   }
 
   Serial.print("Motor at LOCK angle (");
-  Serial.print(LOCK_ANGLE);
+  Serial.print(MAX_LOCK_ANGLE);
   Serial.print("): ");
   Serial.println(lockDeg);
   Serial.print("Is at LOCK position: ");
@@ -652,7 +654,7 @@ bool testFSMPositionOutput() {
 
   // Test UNLOCK position
   Serial.println("\nTesting UNLOCK position...");
-  myservo.attachAndWrite(UNLOCK_ANGLE);
+  myservo.attachAndWrite(MIN_UNLOCK_ANGLE);
   delay(2000);
 
   int unlockDeg = -1;
@@ -664,7 +666,7 @@ bool testFSMPositionOutput() {
   }
 
   Serial.print("Motor at UNLOCK angle (");
-  Serial.print(UNLOCK_ANGLE);
+  Serial.print(MIN_UNLOCK_ANGLE);
   Serial.print("): ");
   Serial.println(unlockDeg);
   Serial.print("Is at UNLOCK position: ");
@@ -700,7 +702,7 @@ bool testFSMCommandResponse() {
   // Start from UNLOCK
   fsmState.currentState = UNLOCK;
   fsmState.curCmd = NONE;
-  myservo.attachAndWrite(UNLOCK_ANGLE);
+  myservo.attachAndWrite(MIN_UNLOCK_ANGLE);
   delay(2000);
 
   Serial.println("Sending LOCK command...");
@@ -715,7 +717,7 @@ bool testFSMCommandResponse() {
   for (int i = 0; i < 10 && afterCommandState != BUSY_MOVE; i++)
   {
 	delay(100);
-  	fsmTransition(myservo.deg(), millis(), NONE, LOCK_CMD);
+  	fsmTransition(myservo.deg(), millis(), false, LOCK_CMD);
   	afterCommandState = fsmState.currentState;
   }
 
@@ -765,24 +767,24 @@ bool testTimeoutToBad() {
 
   // Initialize motor and state to UNLOCK
   fsmState.currentState = UNLOCK;
-  fsmState.lockDeg = LOCK_ANGLE;
-  fsmState.unlockDeg = UNLOCK_ANGLE;
+  fsmState.lockDeg = MAX_LOCK_ANGLE;
+  fsmState.unlockDeg = MIN_UNLOCK_ANGLE;
   fsmState.startTime = 0;
   fsmState.curCmd = NONE;
-  myservo.attachAndWrite(UNLOCK_ANGLE);
+  myservo.attachAndWrite(MIN_UNLOCK_ANGLE);
   delay(2000);
 
   // Actually run a LOCK request
   do {
 	delay(100);
-  	fsmTransition(myservo.deg(), millis(), NONE, LOCK_CMD);
+  	fsmTransition(myservo.deg(), millis(), false, LOCK_CMD);
   } while (fsmState.currentState != BUSY_MOVE);
 
   // Start from BUSY_MOVE state with old startTime
   fsmState.startTime =
       millis() - TOL - 1000;   // Set startTime to 6 seconds ago (exceeds 5s timeout)
 
-  fsmTransition((LOCK_ANGLE + UNLOCK_ANGLE) / 2, millis(), NONE, NONE);
+  fsmTransition((MAX_LOCK_ANGLE + MIN_UNLOCK_ANGLE) / 2, millis(), false, NONE);
   bool reachedBadState = (fsmState.currentState == BAD);
 
   Serial.print("Final State: ");
